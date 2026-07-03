@@ -81,10 +81,18 @@ def pipeline(user_request):
 | #2 | `mentions` | #1、#3 | 收兩位 reviewer 的結果 |
 | #3 | `mentions` | #2 | 收 #2 的 review 請求 |
 
+每隻用 `trusted_bot_ids` 指定「可信來源 bot」:
+
+| bot | `allow_bot_messages` | `trusted_bot_ids` |
+|---|---|---|
+| #1 | `mentions` | `[#2_ID]` |
+| #2 | `mentions` | `[#1_ID, #3_ID]` |
+| #3 | `mentions` | `[#2_ID]` |
+
 - 三隻 `allowed_channels` 都要含 **#dev-bot 頻道 ID**。
-- bot 訊息一樣受 user allowlist 管,故**對方 bot 的 user ID 也要進各自的 `allowed_users`**(或用 `trusted_bot_ids` 收斂可信來源)。
+- **bot 訊息不受 `allowed_users` 管**(已對照 `crates/openab-core/src/discord.rs:2187` 確認:bot author 會跳過 user allowlist,只由 `allow_bot_messages` + `trusted_bot_ids` 把關)。故**對方 bot ID 不必加進 `allowed_users`**;`allowed_users` 只需列人類自己。
+- `trusted_bot_ids` 有 **admission override**(`discord.rs:2201`):列入的可信 bot 只要**明確 @你**,就繞過 `allow_bot_messages` 模式、當成「人類 @mention」放行——所以 @mention 交接很可靠。
 - `allow_user_messages` 維持預設 `multibot-mentions`(使用者在多 bot 頻道要 @ 指定 bot,不會三隻搶答)。
-- ⚠️ 精確 key 名與語意(`allowed_users` vs `trusted_bot_ids` 對 bot 訊息的交互作用)在實作計畫階段對照 `crates/openab-core/src/config.rs` 最終確認。
 
 ## Skill 安裝
 
@@ -115,7 +123,7 @@ def pipeline(user_request):
 ## 迴圈安全
 
 - `allow_bot_messages=mentions` 本身是天然斷路器(沒被點名不動)。
-- #2⇄reviewer 來回由既有 `crates/openab-core/src/bot_turns.rs` 的 **BotTurnTracker**(連續 bot 輪次上限)兜底。
+- #2⇄reviewer 來回由既有 **BotTurnTracker** 兜底:`max_bot_turns` 預設 **100** 連續 bot 輪次(無人類介入)後會 throttle。
 - **人類在 thread 講一句話會重置計數**、也可隨時喊停。
 
 ## 已知限制(Path B 本質)
