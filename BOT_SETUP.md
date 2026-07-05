@@ -520,9 +520,24 @@ docker -c orbstack exec -u node openab-summer \
 > 私有 repo 需要 GH_TOKEN 有讀取權限。
 
 **AGENTS.md** 放入 `/home/node/AGENTS.md`，包含：
-- 步驟 1：`cat /home/node/claude-marketplace/plugins/code-quality/skills/pr-review/SKILL.md`
+- 步驟 1：明確用 Bash 執行 `cat /home/node/claude-marketplace/plugins/code-quality/skills/pr-review/SKILL.md`（**必須用絕對路徑**，用相對路徑 `SKILL.md` 會 ENOENT）
 - 執行環境視為 ci 模式；`CLAUDE_SKILL_DIR=/home/node/claude-marketplace/plugins/code-quality/skills/pr-review`
+- 收到 @mention 後立即執行，不要前言
 - review 完成後 @Rick 回報結果
+
+**更新 AGENTS.md**（覆寫）：
+
+```bash
+docker -c orbstack exec -u node openab-summer node -e "
+const fs = require('fs');
+const content = \`# AGENTS.md — Summer:PR 複審(第二引擎)
+...
+\`;
+fs.writeFileSync('/home/node/AGENTS.md', content);
+"
+```
+
+> ⚠️ 注意：Rick 在 openspec 流程中可能多次 @Summer，每次 @mention 都會觸發一個新 session。若 session 累積過多導致 Codex 初始化慢（超過 1800s hard timeout），可讓 Rick 只在**推 PR 後**才 @Summer 一次。
 
 ### K5. 端對端驗證順序
 
