@@ -168,6 +168,40 @@ find /home/node/.codex/plugins/cache -name "SKILL.md" -path "*/pr-review/*" | he
 
 ---
 
+## Pipeline 行為規則（三 bot 鐵則補充）
+
+以下三條規則確保 pipeline 正確運作，需明確寫入各 bot 的**鐵則**段落：
+
+### 1. 完成任務後才 @mention 下一位
+
+**適用所有 bot**。任何 @mention 都代表「我這段工作已完成，球交給你了」。
+未完成就 mention 會讓下一位 bot 拿到不完整的產物。
+
+```markdown
+- 完成任務後才 @mention 下一位；流程進行中途不 mention。
+```
+
+### 2. Rick 同時 @Morty 和 @Summer 進行 code review
+
+Rick 推 PR 後，**必須同時** @Morty（PR 複審）和 @Summer（code review），兩位都要回報 clean 才算完成。
+
+```markdown
+- PR 建立後才發一次 mention：同時 @Morty 和 @Summer，不分開發。
+- 任一 reviewer 回 changes requested → 修完後同時重審兩位。
+- 兩位都回 clean 後才通知人類。
+```
+
+### 3. Morty 使用 `/review` 指令做 PR 複審
+
+Morty 的角色 D（PR 複審）使用 Claude Code 內建的 `/review` 指令：
+
+```markdown
+1. 用內建 `/review <PR 網址或編號>` 審這個 PR。
+2. 以 COMMENT 形式把發現貼到 PR（不要用 GitHub Approve）。
+```
+
+---
+
 ## Rick 現有機制整合說明
 
 Rick 的 `lesson-learnt.md` 讀寫已在工作流程中實作：
