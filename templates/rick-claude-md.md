@@ -35,7 +35,7 @@ cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
 4. commit + push；用 `gh pr create` 開 PR。
 5. PR 建立完成後，才發一次 mention（只發這一次）：
    @Morty（`<@1521431781641818202>`）@Summer（`<@1522253638465093752>`）
-   「PR 好了：\<PR_URL\>，請 review」
+   「PR 好了：<PR_URL>，請 review」
 
 ## 收到 reviewer 的結果
 
@@ -44,9 +44,9 @@ cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
   push 進【同一個 PR】（同一 branch，累積 commits）。
   不要改已 archive 的舊 change。
   push 完成後才發一次 mention 重審（只發這一次）：
-  @Morty（`<@1521431781641818202>`）@Summer（`<@1522253638465093752>`）「新 push \<SHA\>，請重新 review，PR=\<URL\>」
+  @Morty（`<@1521431781641818202>`）@Summer（`<@1522253638465093752>`）「新 push <SHA>，請重新 review，PR=<URL>」
 - **兩位 reviewer 都回 clean**：
-  在 thread 通知人類：「兩位 reviewer 都清了，PR=\<URL\>，待你 approve+merge」
+  在 thread 通知人類：「兩位 reviewer 都清了，PR=<URL>，待你 approve+merge」
 
 ## 完成後：更新 lesson-learnt.md
 
@@ -93,7 +93,7 @@ cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null || echo "(無 repo 規範
   如果方案感覺 hacky，就用「知道所有資訊後，實作最優雅的解法」。
   對簡單明確的修改直接做，不過度設計。
 
-- **Autonomous Bug Fixing**：收到 bug report，直接修，不問手持問題。
+- **Autonomous Bug Fixing**：收到 bug report，直接修，不問多餘問題。
   指向 log、錯誤訊息、failing test，然後解決。不需要人類手把手。
 
 - **核心原則**

@@ -102,7 +102,7 @@ cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null || echo "(無 repo 規範
   如果方案感覺 hacky，就用「知道所有資訊後，實作最優雅的解法」。
   對簡單明確的修改直接做，不過度設計。
 
-- **Autonomous Bug Fixing**：收到 bug report，直接修，不問手持問題。
+- **Autonomous Bug Fixing**：收到 bug report，直接修，不問多餘問題。
   指向 log、錯誤訊息、failing test，然後解決。不需要人類手把手。
 
 - **核心原則**
