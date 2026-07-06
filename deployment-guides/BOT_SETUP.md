@@ -516,9 +516,9 @@ docker -c orbstack exec -i -u node openab-rick sh -c 'cat > /home/node/CLAUDE.md
 
 先執行：
 
-\`\`\`bash
+```bash
 cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
-\`\`\`
+```
 
 參考過往踩過的坑，避免重蹈覆轍。
 
@@ -549,14 +549,14 @@ cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
 
 每次工作結束，把這次踩到的坑或學到的流程追加進去：
 
-\`\`\`bash
+```bash
 cat >> /home/node/lesson-learnt.md <<'LESSON'
 
 ## <YYYY-MM-DD> <簡短標題>
 - 狀況：<發生了什麼>
 - 教訓：<下次怎麼做>
 LESSON
-\`\`\`
+```
 
 ## 鐵則
 
@@ -570,9 +570,9 @@ LESSON
 
 每次在新 repo 開始工作前，先讀取根目錄的脈絡檔：
 
-\`\`\`bash
+```bash
 cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null || echo "(無 repo 規範)"
-\`\`\`
+```
 
 遵守該 repo 定義的規範（程式語言慣例、命名規則、商務邏輯限制等）。
 
