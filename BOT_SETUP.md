@@ -58,6 +58,16 @@ Discord 訊息 ──> openab(容器內 PID1) ──spawn──> claude-agent-ac
                                                                      讀 ~/.config/gh(GitHub)
 ```
 
+**三 Bot Pipeline 實際部署位置：**
+
+| Bot    | 身份                 | 主機              | 容器管理   | 映像                       |
+| ------ | -------------------- | ----------------- | ---------- | -------------------------- |
+| Morty  | Claude(規格+PR複審)  | 另一台機器        | Portainer  | openab-claude:latest       |
+| Rick   | Claude(openspec 開發)| Mac mini(CAC@2771)| OrbStack   | openab-claude:latest       |
+| Summer | Codex(Code Review)   | Mac mini(CAC@2771)| OrbStack   | openab-codex:latest        |
+
+> Mac mini 上同時有 **colima**（團隊服務）和 **OrbStack**（openab）。Rick/Summer 操作一律加 `-c orbstack`，**別動 colima**。Morty 在 Portainer 上，用網頁 Console 操作（無 vi/nano，改設定用 `sed` 或 heredoc）。
+
 關鍵觀念:
 
 - **openab spawn agent 前會 `env_clear()`**(防止 `DISCORD_BOT_TOKEN` 之類被 prompt injection 偷走)。所以容器有的環境變數**預設不會傳給 agent**;要傳必須在 config 用 `[agent].inherit_env` 明確放行 → 這就是**解法 B**。
@@ -488,7 +498,7 @@ docker -c orbstack exec -u node openab-rick openspec --version  # 確認印出�
 
 ### K4. Summer(Codex@OrbStack Mac mini) — Code Review
 
-**角色：** 收到 Rick 的 PR → 用 pr-review skill 審查 → @Rick 回報結果。
+**角色：** 收到 Rick 的 PR → 用 **superpowers `requesting-code-review`** skill 審查 → @Rick 回報結果。
 
 **秘密檔**(`~/.openab-secret-summer.env`，chmod 600)：
 
@@ -497,44 +507,201 @@ DISCORD_BOT_TOKEN=你的_summer_discord_bot_token
 GH_TOKEN=github_pat_summer_的_token
 ```
 
-**Docker 啟動**（使用獨立 volume `openab-summer-home`）：
+**Mac mini 主機 openab config**（`~/openab-summer/config.toml`，掛載為容器 `/etc/openab:ro`）：
+
+```toml
+[discord]
+bot_token        = "${DISCORD_BOT_TOKEN}"
+allowed_channels = ["頻道_ID"]
+allowed_users    = ["你的_USER_ID"]
+allow_bot_messages = "mentions"
+trusted_bot_ids    = ["Rick_Bot_ID"]   # Rick 的 Discord User ID
+
+[agent]
+command     = "codex-acp"
+args        = ["-c", "shell_environment_policy.inherit=all"]   # ★ GH_TOKEN 傳入 bwrap shell 必要
+working_dir = "/home/node"
+inherit_env = ["GH_TOKEN"]
+
+[pool]
+max_sessions      = 5
+session_ttl_hours = 24
+```
+
+> ⚠️ `args` 的 `shell_environment_policy.inherit=all`：codex-acp 預設不把 `inherit_env` 的變數傳入 bwrap sandbox 內的 shell，加這行才讓 `gh` 看到 GH_TOKEN。少了這行，`gh` 指令全部 ❌。
+
+**Docker 啟動**（`--security-opt seccomp=unconfined` 必要，讓 bwrap 建 Linux namespace）：
 
 ```bash
 docker -c orbstack run -d \
   --name openab-summer \
   --restart unless-stopped \
+  --security-opt seccomp=unconfined \
   --env-file ~/.openab-secret-summer.env \
   -v openab-summer-home:/home/node \
+  -v ~/openab-summer:/etc/openab:ro \
   ghcr.io/openabdev/openab-codex:latest
 ```
 
-> ⚠️ Rick 和 Summer **必須各用不同 volume**（`openab-rick-home` vs `openab-summer-home`），否則 CLAUDE.md 和憑證會互蓋。
+> ⚠️ `--security-opt seccomp=unconfined`：Docker 預設 seccomp profile 擋住 `clone`/`unshare` syscall，導致 bwrap 無法建 namespace，所有 shell 指令都 ❌。加這個旗標放行；Docker container 本身已是沙箱，不會有安全疑慮。驗證：`docker -c orbstack exec openab-summer unshare --user echo ok` 應回 `ok`。
 
-**pr-review skill 安裝**（只需一次，clone 後本地讀取）：
+> ⚠️ Rick 和 Summer **必須各用不同 volume**（`openab-rick-home` vs `openab-summer-home`），否則 AGENTS.md 和憑證會互蓋。
+
+**superpowers 安裝**（只需一次；安裝在 `/home/node` volume，重啟後持久）：
+
+進入容器互動 session，透過 Codex 官方 plugin marketplace 安裝：
+
+```bash
+docker -c orbstack exec -it -u node openab-summer codex
+```
+
+進入 Codex session 後依序輸入：
+
+```
+/plugins
+superpowers
+# → 選 Install Plugin
+```
+
+完成後 `/exit` 離開，確認 skill 檔路徑（cache hash 每版不同）：
 
 ```bash
 docker -c orbstack exec -u node openab-summer \
-  git clone https://github.com/104corp/claude-marketplace.git /home/node/claude-marketplace
+  ls /home/node/.codex/plugins/cache/openai-curated/superpowers/*/skills/requesting-code-review/
+# 應看到：SKILL.md  agents/  code-reviewer.md
 ```
 
-> 私有 repo 需要 GH_TOKEN 有讀取權限。
-
-**AGENTS.md** 放入 `/home/node/AGENTS.md`，包含：
-- 步驟 1：明確用 Bash 執行 `cat /home/node/claude-marketplace/plugins/code-quality/skills/pr-review/SKILL.md`（**必須用絕對路徑**，用相對路徑 `SKILL.md` 會 ENOENT）
-- 執行環境視為 ci 模式；`CLAUDE_SKILL_DIR=/home/node/claude-marketplace/plugins/code-quality/skills/pr-review`
-- 收到 @mention 後立即執行，不要前言
-- review 完成後 @Rick 回報結果
-
-**更新 AGENTS.md**（覆寫）：
+**⚠️ Codex 內部 config**（`/home/node/.codex/config.toml`，存在 volume 持久化）：
 
 ```bash
-docker -c orbstack exec -u node openab-summer node -e "
-const fs = require('fs');
-const content = \`# AGENTS.md — Summer:PR 複審(第二引擎)
-...
-\`;
-fs.writeFileSync('/home/node/AGENTS.md', content);
-"
+docker -c orbstack exec -i -u node openab-summer sh -c 'cat > /home/node/.codex/config.toml' <<'EOF'
+personality = "pragmatic"
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+
+[projects."/home/node"]
+trust_level = "trusted"
+
+[features]
+multi_agent = true
+
+[tui.model_availability_nux]
+"gpt-5.5" = 1
+
+[plugins."superpowers@openai-curated"]
+enabled = false
+EOF
+```
+
+> ⚠️ 三個 top-level key 缺一不可（openab issue #1047）：
+> - `sandbox_mode = "danger-full-access"`：停用 bwrap 內層 sandbox，適合外層已有 Docker 隔離的場景。**必須 top-level，不能放在任何 section 內。**
+> - `approvals_reviewer = "auto_review"`：bot 無人值守時自動核准工具呼叫；若設 `"user"` 會讓 tool call 掛住 30 分鐘。
+> - `multi_agent = true`：啟用 subagent dispatch（`spawn_agent`/`wait_agent`）。
+
+**AGENTS.md** 放入 `/home/node/AGENTS.md`（heredoc 方式；requesting-code-review + code-reviewer 精華直接內嵌，不依賴外部 skill 檔或 plugin 機制）：
+
+```bash
+docker -c orbstack exec -i -u node openab-summer sh -c 'cat > /home/node/AGENTS.md' <<'EOF'
+# AGENTS.md — Summer:PR 複審(requesting-code-review)
+
+## 身份
+你是 openab→Discord #dev-bot 的 Codex agent。
+你的工作是對 Rick 送來的 GitHub PR 進行 Senior Code Review。
+
+## 回覆語氣
+你是 Summer Smith。在 Discord 的回覆中帶她的風格：
+- 自信到有點傲，偶爾帶著「這我早就知道了」的語氣
+- 對爛 code 不客氣，會直接說「seriously？這邊是在幹嘛」
+- 對好 code 給冷淡認可——「還行啦」是最高評價
+- 偶爾用「ugh」「whatever」「OK but like」開頭
+- 絕不廢話，有話直說
+
+## 觸發：Rick @你、帶一個 PR URL
+收到 @mention 後立即開始執行，不要有前言。
+
+### 步驟 1：取得 PR 資訊與 diff
+```
+gh pr view <PR_NUMBER> --repo <OWNER/REPO> --json title,body,baseRefName
+gh pr checkout <PR_NUMBER> --repo <OWNER/REPO>
+BASE_SHA=$(git rev-parse origin/<BASE_BRANCH>)
+HEAD_SHA=$(git rev-parse HEAD)
+git diff --stat $BASE_SHA..$HEAD_SHA
+git diff $BASE_SHA..$HEAD_SHA
+```
+review 期間不修改任何檔案、不動 HEAD。
+
+### 步驟 2：逐項審查（五個維度）
+
+**Plan alignment**
+- 實作符合 PR description 的目標？偏離有理由嗎？所有計畫的功能都在？
+
+**Code quality**
+- 關注點分離清楚？error handling 到位？型別安全？DRY 但不過度抽象？邊界條件處理了？
+
+**Architecture**
+- 設計決策合理？效能/安全有顧慮嗎？和既有 code 整合乾淨？
+
+**Testing**
+- 測試驗證真實行為（非只是 mock）？邊界條件有涵蓋？integration test 有沒有？
+
+**Production readiness**
+- schema 有改就要有 migration？backward compatibility 考慮到了嗎？沒有明顯 bug？
+
+### 步驟 3：整理 review 結果
+
+嚴重度分類（照實際嚴重程度，別什麼都 Critical）：
+- **Critical (Must Fix)**：bug、資安問題、資料損失風險、功能壞掉
+- **Important (Should Fix)**：架構問題、缺功能、error handling 不足、測試缺口
+- **Minor (Nice to Have)**：code style、優化建議、文件潤飾
+
+每個問題要說清楚：file:line 位置、問題是什麼、為什麼重要、怎麼修
+
+輸出格式：
+```
+### Strengths（先說做得好的，具體說）
+### Issues
+#### Critical (Must Fix)
+#### Important (Should Fix)
+#### Minor (Nice to Have)
+### Assessment
+**Ready to merge?** Yes | No | With fixes
+**Reasoning:** 一兩句技術評估
+```
+
+絕對不能：說「看起來不錯」但沒真的看、把小挑剔標成 Critical、說模糊廢話、迴避給結論。
+
+### 步驟 4：把發現用 inline comment 貼到 PR
+每個 Critical/Important 問題一則 line-specific comment：
+```
+gh api repos/<OWNER>/<REPO>/pulls/<PR_NUMBER>/comments \
+  -f body="**[Critical|Important|Minor]** <問題描述，含 why 和 how to fix>" \
+  -f path="<檔案路徑>" \
+  -f commit_id="$HEAD_SHA" \
+  -F line=<行號>
+```
+整體摘要（COMMENT，不用 Approve）：
+```
+gh api repos/<OWNER>/<REPO>/pulls/<PR_NUMBER>/reviews \
+  -f body="<Strengths + Assessment>" \
+  -f event="COMMENT"
+```
+
+### 步驟 5：Discord 簡短回報
+- 有問題：`<@RICK_BOT_USER_ID> changes requested:<Critical/Important 重點一句話>,PR=<URL>`
+- 沒問題：`<@RICK_BOT_USER_ID> clean — ready to merge,PR=<URL>`
+
+## 鐵則
+- 只有被 @ 到才動作；做完一定 @Rick(`<@RICK_BOT_USER_ID>`)回報。
+- 永不 merge、永不 approve PR。
+- Critical 問題不可忽略；Important 問題要在 @Rick 前說清楚。
+EOF
+```
+
+**驗證寫入**：
+
+```bash
+docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 ```
 
 > ⚠️ 注意：Rick 在 openspec 流程中可能多次 @Summer，每次 @mention 都會觸發一個新 session。若 session 累積過多導致 Codex 初始化慢（超過 1800s hard timeout），可讓 Rick 只在**推 PR 後**才 @Summer 一次。
@@ -602,6 +769,10 @@ fs.writeFileSync('/home/node/AGENTS.md', content);
 | 改了 token 沒生效                                                                                  | 執行中容器無法改 env                                                               | `rm -f` 後重跑 Part D                                                                              |
 | (Portainer)Console 用 `node` 進不去:`unable to find user node: no matching entries in passwd file` | build 到錯的 Dockerfile(基礎 `Dockerfile` 是 `agent` 使用者,非 Claude 版的 `node`) | 用官方 `openab-claude:latest`;或自 build 時把根 `Dockerfile` 換成 `Dockerfile.claude`(見 Part I)   |
 | (Portainer)容器一直 unhealthy                                                                      | sleep 待命階段沒有 openab process(healthcheck 抓 `pgrep openab`)                   | 正常;完成 Part I3 切回 `openab run` 後即 healthy                                                   |
+| **[Codex]** Summer 所有 shell 指令 ❌（`pwd`、`git`、`gh` 全部失敗，log 顯示 `unshare failed: Operation not permitted`） | Docker 預設 seccomp profile 擋住 `clone`/`unshare` syscall，bwrap 無法建立 Linux user namespace | 重建容器加 `--security-opt seccomp=unconfined`（見 K4）。驗證：`docker -c orbstack exec openab-summer unshare --user echo ok` |
+| **[Codex]** `gh` 指令 ❌，但 `docker -c orbstack exec -u node openab-summer gh ...` 直接跑沒問題   | codex-acp 預設不把 `inherit_env` 的變數傳入 bwrap sandbox 內的 shell；GH_TOKEN 對 `gh` 不可見 | openab `config.toml` `[agent]` 加 `args = ["-c", "shell_environment_policy.inherit=all"]` → restart |
+| **[Codex]** 在 openab config `args` 加 `--dangerously-bypass-approvals-and-sandbox` 導致 Connection Lost | `codex-acp` 是獨立 binary，不接受標準 `codex` CLI 的此 flag | 改用 `sandbox_mode = "danger-full-access"` 寫進容器 `~/.codex/config.toml`（top-level）        |
+| **[Codex]** `sandbox_permissions = ["network-full-access"]` 加了沒效果                              | `sandbox_permissions` 不是 `codex-acp` 合法的 config key（會被 silently ignore）   | 同上，用 `sandbox_mode = "danger-full-access"`（參見 openab issue #1047）                          |
 
 ---
 
