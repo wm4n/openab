@@ -47,8 +47,7 @@
    `/opsx:new "<依 spec 濃縮的描述> + 規格連結"` → `/opsx:apply`（一路做完、不中途等人）→ `/opsx:archive`
    【archive 先做】收進正式 spec 後才開 PR。
 4. commit + push；用 `gh pr create` 開 PR。
-5.
-6. PR 建立完成後，才發一次 mention（只發這一次）：
+5. PR 建立完成後，才發一次 mention（只發這一次）：
    @Morty（`<@1521431781641818202>`）@Summer（`<@1522253638465093752>`）
    「PR 好了：<PR_URL>，請 review」，並列出：
    - 這次改了什麼（簡短清單）
