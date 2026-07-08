@@ -1,6 +1,6 @@
 # openab Bot 部署 Runbook(Mac mini + Discord + Claude Code)
 
-> 這是**個人/團隊 POC 的部署手冊**,記錄在 Mac mini(`CAC@2771`)上把 openab 接上 Discord、後端接 Claude Code、並安全地給它 GitHub 存取(採**解法 B:`inherit_env`**)的完整步驟。
+> 這是**個人/團隊 POC 的部署手冊**,記錄在 Mac mini(`CAC@2771`)上把 openab 接上 Discord、後端接 Claude Code、並安全地給它 GitHub 存取(採 **gh 雙帳號 + `gh auth switch`**,同時服務 wm4n/cac-william 兩身份)的完整步驟。
 >
 > ⚠️ 本檔**只放 placeholder,絕不寫入真實 token**。所有秘密一律放在 `~/.openab-secrets.env`。
 >
@@ -28,7 +28,8 @@
     - [C2. 建立 config.toml](#c2-建立-configtoml)
   - [Part D — 啟動容器](#part-d--啟動容器)
   - [Part E — Claude Code 登入](#part-e--claude-code-登入)
-  - [Part F — 容器內 git/gh 設定](#part-f--容器內-gitgh-設定)
+  - [Part F — 容器內 git/gh 設定(雙帳號)](#part-f--容器內-gitgh-設定雙帳號)
+  - [Part F2 — 多帳號身份切換](#part-f2--多帳號身份切換)
   - [Part G — 放入 workspace 脈絡 CLAUDE.md](#part-g--放入-workspace-脈絡-claudemd)
   - [Part H — 端對端驗證](#part-h--端對端驗證)
   - [Part I — Portainer(另一台,UI-only)部署](#part-i--portainer另一台ui-only部署)
@@ -70,7 +71,8 @@ Discord 訊息 ──> openab(容器內 PID1) ──spawn──> claude-agent-ac
 
 關鍵觀念:
 
-- **openab spawn agent 前會 `env_clear()`**(防止 `DISCORD_BOT_TOKEN` 之類被 prompt injection 偷走)。所以容器有的環境變數**預設不會傳給 agent**;要傳必須在 config 用 `[agent].inherit_env` 明確放行 → 這就是**解法 B**。
+- **openab spawn agent 前會 `env_clear()`**(防止 `DISCORD_BOT_TOKEN` 之類被 prompt injection 偷走)。容器環境變數**預設不會傳給 agent**;要傳才在 `[agent].inherit_env` 放行。
+- **GitHub 憑證不走 env**:改把 `wm4n`、`cac-william` 兩個帳號登入進 gh(存 `~/.config/gh/hosts.yml`),每個任務用 `gh auth switch` 選帳號(見 [Part F2](#part-f2--多帳號身份切換))。好處:agent 的 `printenv` 看不到 token。`inherit_env` 只留給非 GitHub 的 secret(如 Morty 的 `JIRA_*`)。
 - agent 的 `command` 必須是 **`claude-agent-acp`**(不是裸 `claude`,裸 `claude` 不講 ACP)。
 - 這台 Mac mini 同時跑 **colima**(團隊服務 wekan/mongo/jenkins)和 **OrbStack**(openab)。**openab 所有 docker 指令都要帶 `-c orbstack`**,別動到 colima。
 
@@ -118,10 +120,14 @@ Discord 訊息 ──> openab(容器內 PID1) ──spawn──> claude-agent-ac
 
 > **解法 B 的安全前提:agent 一定讀得到這把 token(它有 Bash,`printenv` 就拿到)。所以安全不靠「藏」,靠「範圍小 + 可秒收回」。** 詳見 [安全須知](#安全須知務必讀)。
 
-### B1.(強烈建議)用專用 machine user
+### B1. 兩個帳號、兩把 token
 
-- 另開一個 GitHub 帳號當機器人帳號(例:`cac-william`),只把它加為**目標 repo 的 collaborator**。
-- 好處:獨立署名、要收回只要踢 collaborator,完全不碰你本人帳號。
+本 runbook 讓 bot 同時服務兩個 GitHub 身份,各建一把 fine-grained PAT:
+
+- **公司**:`cac-william`(建議當專用 machine user,只加為目標 repo collaborator;要收回只要踢 collaborator)。→ `GH_TOKEN_CAC`
+- **個人**:`wm4n`。→ `GH_TOKEN_WM4N`
+
+兩把都照 B2 建 fine-grained、**各自只釘死要給 bot 碰的 repo**。個人帳號尤其別給帳號級全開(見[安全須知](#安全須知務必讀))。
 
 ### B2. 建 Fine-grained PAT(優先,釘死 repo)
 
@@ -141,7 +147,7 @@ GitHub → Settings → **Developer settings** → **Fine-grained tokens** → G
 
 ### B3. 放進秘密檔(下一節 Part C 會建立)
 
-token 之後寫進 `~/.openab-secrets.env` 的 `GH_TOKEN=`,**不要**寫進 config.toml、不要寫進 docker 指令。
+兩把 token 之後寫進 `~/.openab-secrets.env` 的 `GH_TOKEN_WM4N=`/`GH_TOKEN_CAC=`,**不要**寫進 config.toml、不要寫進 docker 指令。
 
 ---
 
@@ -162,7 +168,8 @@ chmod 600 ~/.openab-secrets.env
 
 ```dotenv
 DISCORD_BOT_TOKEN=你的_discord_bot_token
-GH_TOKEN=github_pat_你的_fine_grained_token
+GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained     # 釘死要給 bot 碰的 wm4n repo
+GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained # 釘死要碰的 104corp/… repo
 ```
 
 > 為什麼用 `--env-file` 而不是 `-e`?避免 token 出現在 shell history 和 `docker run` 指令裡。
@@ -181,14 +188,15 @@ allowed_users    = ["你的_USER_ID"]          # 限制只有你能用
 command     = "claude-agent-acp"            # 必須是這個,不是 "claude"
 args        = []
 working_dir = "/home/node"
-inherit_env = ["GH_TOKEN"]                  # ★ 解法 B:放行 GH_TOKEN 給 agent
+# GitHub token 不走 env:兩帳號登入 gh、任務內 gh auth switch 選帳號(見 Part F2)。
+# inherit_env 只放非 GitHub 的 secret(此基本版無;Morty 版見 Part K2 保留 JIRA_*)。
 
 [pool]
 max_sessions      = 5
 session_ttl_hours = 24
 ```
 
-> **★ `inherit_env = ["GH_TOKEN"]` 就是這份 runbook 的核心。** 沒有它,openab 的 `env_clear()` 會把 `GH_TOKEN` 擋在 agent 門外,bot 就會「手動 `docker exec` clone 得了、但叫 bot clone 失敗」。
+> **★ 本 runbook 的核心已改為 gh 雙帳號 + `gh auth switch`(見 Part F2)。** GitHub token 不再經 `inherit_env` 進 agent env;而是在 Part F 一次性登入 gh 後,由每個任務的「選帳號」步驟切換。這樣 agent 讀不到裸 token,且能依 repo owner 用對身份。
 
 ---
 
@@ -206,7 +214,7 @@ docker -c orbstack run -d \
 
 說明:
 
-- `--env-file`:注入 `DISCORD_BOT_TOKEN`(config 展開用)和 `GH_TOKEN`(inherit_env 傳給 agent)。
+- `--env-file`:注入 `DISCORD_BOT_TOKEN`(config 展開用)、`GH_TOKEN_WM4N`/`GH_TOKEN_CAC`(供 Part F 一次性 gh 登入用;登入後 agent 端不再依賴)。
 - `-v openab-claude-home:/home/node`:**持久化** volume,放 `~/.claude` 憑證、`~/.config/gh`、git 設定、clone 下來的專案。容器重啟/更新映像都不會掉。
 - `-v ~/oab:/etc/openab:ro`:把 config 目錄唯讀掛進去(openab 預設讀 `/etc/openab/config.toml`)。
 - 用**掛目錄**而非掛單檔,避開 colima 的單檔 bind mount 快取雷(見[疑難排解](#疑難排解))。
@@ -242,26 +250,46 @@ docker -c orbstack exec -u node openab-claude ls -la /home/node/.claude
 
 ---
 
-## Part F — 容器內 git/gh 設定
+## Part F — 容器內 git/gh 設定(雙帳號)
 
-讓容器內的 `git` 會用 `gh` 當憑證來源(這樣 agent 用一般 `git clone https://...` 也能帶憑證、token 不進 URL/log)。設定寫進 `/home/node/.gitconfig`,在 volume 裡持久化:
-
-```bash
-docker -c orbstack exec -u node openab-claude gh auth setup-git
-```
-
-(選用)設定 commit 署名:
+把兩個帳號都登入進 gh(存進 volume 內的 `~/.config/gh/hosts.yml`),並讓 git 用 gh 當 credential helper:
 
 ```bash
-docker -c orbstack exec -u node openab-claude git config --global user.name  "Agent(CAC) Smith"
-docker -c orbstack exec -u node openab-claude git config --global user.email "cac.agent.smith@104.com.tw"
+docker -c orbstack exec -i -u node openab-claude sh -c '
+  echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token &&
+  echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token &&
+  gh auth setup-git'
 ```
 
-驗證 gh 認得 token:
+> 前提:env 內**不能有裸 `GH_TOKEN`**,否則 gh 會改用該環境變數並拒絕 `gh auth login`/`switch`。本 runbook 用 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC`,故無此問題。
+
+驗證兩個帳號都登入:
 
 ```bash
-docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 Logged in ... (GH_TOKEN)
+docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 wm4n 與 cac-william 兩個 Logged in
 ```
+
+> 署名不在此用 `--global` 設死;改由每個任務的「選帳號」步驟對該 repo 設 local `user.name/email`(見 Part F2)。
+
+---
+
+## Part F2 — 多帳號身份切換
+
+一個 bot 服務兩個 GitHub 身份,靠「每個任務開工前依 repo owner 選帳號」。三顆 bot 的 context 檔(CLAUDE.md/AGENTS.md)都放同一段「選帳號」開場(見 Part K)。
+
+**Owner → 帳號對照:**
+
+| owner | 帳號 | git user.name | git user.email |
+| --- | --- | --- | --- |
+| `wm4n` | `wm4n`(個人) | `wm4n` | `<你的 wm4n 個人 email>` |
+| `104corp`、`openabdev`、其餘一律 | `cac-william`(公司) | `Agent(CAC) Smith` | `cac.agent.smith@104.com.tw` |
+| 無法判斷 | 問人類,別猜 | | |
+
+**每個任務開工步驟:** 判斷 owner → `gh auth switch --hostname github.com --user <帳號>` → clone 後 `git -C <repo> config user.name/email`(local)。切換後 `gh` 與 `git push` 都用該帳號。
+
+> **併發取捨:** `gh auth switch` 是整個容器全域。同一顆 bot 若同時跑兩個不同帳號的 thread(pool 併發)會互搶身份。單人主導、一次一個 feature 幾乎不會遇到。
+>
+> **Fallback(需跨帳號併發時再上):** 改「clone 時把 token 綁進該 repo remote + 每條 gh 指令加 `GH_TOKEN=$GH_TOKEN_XXX` 前綴」。此版需把兩把 token 放回 `inherit_env` 供逐條引用;`git remote -v` 含 token,務必守「不得貼進 Discord」鐵則。
 
 ---
 
@@ -897,7 +925,8 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 
 ```dotenv
 DISCORD_BOT_TOKEN=你的_discord_bot_token
-GH_TOKEN=github_pat_你的_fine_grained_token
+GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained     # 釘死要給 bot 碰的 wm4n repo
+GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained # 釘死要碰的 104corp/… repo
 ```
 
 ### `~/oab/config.toml`
@@ -912,7 +941,8 @@ allowed_users    = ["你的_USER_ID"]
 command     = "claude-agent-acp"
 args        = []
 working_dir = "/home/node"
-inherit_env = ["GH_TOKEN"]
+# GitHub token 不走 env:兩帳號登入 gh、任務內 gh auth switch 選帳號(見 Part F2)。
+# inherit_env 只放非 GitHub 的 secret(此基本版無;Morty 版見 Part K2 保留 JIRA_*)。
 
 [pool]
 max_sessions      = 5
