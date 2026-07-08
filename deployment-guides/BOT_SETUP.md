@@ -446,18 +446,31 @@ inherit_env = ["GH_TOKEN", "JIRA_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL"]
 
 **Portainer Stack** Environment variables 要同步加入上述所有 JIRA 變數（Stack env 注入容器，config.toml inherit_env 再傳給 agent）。
 
-**skill-registry 安裝**（Portainer Console，user `node`）：
+**skill 安裝**（Portainer Console，user `node`）：
 
 ```bash
-git clone https://github.com/wm4n/skill-registry.git /home/node/skill-registry
-ls /home/node/skill-registry/skills/jira-fetch/SKILL.md  # 確認
+# 1) jira-fetch：clone skill-registry 到無版本號路徑，再 symlink 進 ~/.claude/skills/
+git clone https://github.com/wm4n/skill-registry.git /home/node/github-repo/skill-registry
+mkdir -p /home/node/.claude/skills
+ln -sfn /home/node/github-repo/skill-registry/skills/jira-fetch /home/node/.claude/skills/jira-fetch
+
+# 2) superpowers：互動 session 內 /plugins 裝好後，把要用的 skill symlink 進 ~/.claude/skills/
+#    （claude → /plugins → 選 superpowers → Install Plugin → /exit）
+ln -sfn /home/node/.claude/plugins/superpowers/skills/brainstorming        /home/node/.claude/skills/superpowers.brainstorming
+ln -sfn /home/node/.claude/plugins/superpowers/skills/systematic-debugging /home/node/.claude/skills/superpowers.systematic-debugging
+ls -la /home/node/.claude/skills/   # 三條 symlink（jira-fetch/superpowers.brainstorming/superpowers.systematic-debugging）都在、owner 為 node
 ```
+
+> ⚠️ **ACP skill 載入規則（實測）**：claude-agent-acp 只掃描 `~/.claude/skills/<name>/SKILL.md`；marketplace（`/plugins`）裝在 `~/.claude/plugins/cache/` 的**不會**被載入，所以裝完一定要 symlink 進 `~/.claude/skills/`。symlink 指 git checkout／plugin 目錄，**別指** cache 版本目錄（`.../1.0.0/`，更新就斷鏈）。
+> ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名。
 
 **CLAUDE.md** 放入 `/home/node/CLAUDE.md`，包含：
 - 四個角色觸發偵測（PR → D、JIRA 票號 → B1、GitHub Issue → B2、stack trace → C、純文字 → A）
-- 角色 B1 取票改用 skill：`cat /home/node/skill-registry/skills/jira-fetch/SKILL.md`
+- 角色 A/B1/B2 使用 `superpowers.brainstorming` skill 產出 design spec；角色 C 使用 `superpowers.systematic-debugging` skill 分析
+- 角色 B1 取票使用 `jira-fetch` skill（帶票號為 ARGUMENTS、COMMENTS_COUNT 預設 5）
 - 角色 D：使用 `/review` 發佈 PR review comment，@Rick 回報結果
-- 結尾必 @Rick（Discord User ID）
+- 只有產出新交付物（spec/review 結論）時結尾才 @Rick；純狀態確認/ACK 不帶任何 mention（終止 bot 互 @ 迴圈）
+- mention 標記（`<@ID>`）只出現在回覆最後的 handoff 行，敘事中提到其他 bot 用純文字名稱
 - Repo 解析優先序：人類指定 > JIRA 票欄位 > GitHub Issue URL > `104corp/cac-ai-rules/product-repo-map.md`
 
 **重啟後驗證** `env | grep JIRA` 看到三個 JIRA 變數有值。
@@ -544,6 +557,8 @@ cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
   @Morty（`<@1521431781641818202>`）@Summer（`<@1522253638465093752>`）「新 push <SHA>，請重新 review，PR=<URL>」
 - **兩位 reviewer 都回 clean**：
   在 thread 通知人類：「兩位 reviewer 都清了，PR=<URL>，待你 approve+merge」
+- **訊息只是狀態確認/ACK**（沒有 changes requested、沒有新 review 結論、沒有新任務）：
+  不重跑流程、不回覆或最多回一句，絕不帶任何 @mention（終止 bot 互 @ 迴圈）。
 
 ## 完成後：更新 lesson-learnt.md
 
@@ -563,8 +578,12 @@ LESSON
 - 永不 merge、永不 approve PR——merge 是人類手動。
 - 只有【最新一次 push 之後】兩位 reviewer 都回過 clean，才通知人類；任何新 push 讓先前的 clean 作廢、須重審。
 - @mention 只在「PR 建立」或「新 push 完成」後發一次；openspec 流程進行中途不 @mention。
+- @mention 標記（`<@ID>`）只能出現在回覆最後的 handoff 行；敘事、計畫、狀態表提到其他 bot 一律用純文字名稱（Morty、Summer），不加 @、不照抄本文件裡的 `<@ID>` 範例。
+- handoff 行必須自包含完整資訊（PR URL、commit SHA）——對方可能只收到這一行。
+- 被 @ 但訊息沒有實質任務內容（裸 mention、純確認/ACK）→ 不動作、回覆不帶任何 @mention。
 - 完成任務後才 @mention 下一位；流程進行中途不 @mention。
 - 只有被 @ 到才動作。
+- Discord 回覆保持精簡：超過 2000 字會被切成多則訊息，mention 會被複製到每一段、造成重複觸發。
 
 ## 目標 Repo 規範
 
@@ -658,6 +677,8 @@ docker -c orbstack run -d \
 
 > ⚠️ Rick 和 Summer **必須各用不同 volume**（`openab-rick-home` vs `openab-summer-home`），否則 AGENTS.md 和憑證會互蓋。
 
+> ⚠️ `/home/node` 下所有檔案必須維持 `node:node` 擁有：進容器一律帶 `-u node`；**不要用 `docker cp` 塞檔案**（進去會變 root 擁有），一律用 heredoc（`docker exec -i -u node ... sh -c 'cat > 檔案'`）。agent（codex-acp/claude-agent-acp）以 node 執行，讀不到 root 擁有的 config/憑證會直接退出，Discord 端只看得到 `Connection Lost`。誤生 root 檔案的修復：`docker -c orbstack exec -u root <容器> chown -R node:node /home/node`。
+
 **superpowers 安裝**（只需一次；安裝在 `/home/node` volume，重啟後持久）：
 
 進入容器互動 session，透過 Codex 官方 plugin marketplace 安裝：
@@ -666,21 +687,18 @@ docker -c orbstack run -d \
 docker -c orbstack exec -it -u node openab-summer codex
 ```
 
-進入 Codex session 後依序輸入：
-
-```
-/plugins
-superpowers
-# → 選 Install Plugin
-```
-
-完成後 `/exit` 離開，確認 skill 檔路徑（cache hash 每版不同）：
+進入 Codex session 後依序輸入 `/plugins` → `superpowers` → 選 Install Plugin，完成後 `/exit`。
+再把 review skill symlink 進 codex-acp 掃描的 skill 目錄（`~/.codex/skills/`）：
 
 ```bash
-docker -c orbstack exec -u node openab-summer \
-  ls /home/node/.codex/plugins/cache/openai-curated/superpowers/*/skills/requesting-code-review/
-# 應看到：SKILL.md  agents/  code-reviewer.md
+docker -c orbstack exec -u node openab-summer sh -c '
+  mkdir -p /home/node/.codex/skills
+  SRC=$(ls -d /home/node/.codex/plugins/cache/openai-curated/superpowers/*/skills/requesting-code-review | head -1)
+  ln -sfn "$SRC" /home/node/.codex/skills/requesting-code-review
+  ls -la /home/node/.codex/skills/'
 ```
+
+> ⚠️ **Codex skill 未完整驗證**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `requesting-code-review` skill；若找不到，回退在 AGENTS.md 步驟 1 用 `find /home/node/.codex/plugins/cache -name SKILL.md -path '*requesting-code-review*' | head -1 | xargs cat` 讀取。
 
 **⚠️ Codex 內部 config**（`/home/node/.codex/config.toml`，存在 volume 持久化）：
 
@@ -710,7 +728,7 @@ EOF
 > - `approvals_reviewer = "auto_review"`：bot 無人值守時自動核准工具呼叫；若設 `"user"` 會讓 tool call 掛住 30 分鐘。
 > - `multi_agent = true`：啟用 subagent dispatch（`spawn_agent`/`wait_agent`）。
 
-**AGENTS.md** 放入 `/home/node/AGENTS.md`（heredoc 方式；requesting-code-review + code-reviewer 精華直接內嵌，不依賴外部 skill 檔或 plugin 機制）：
+**AGENTS.md** 放入 `/home/node/AGENTS.md`（heredoc 方式；步驟 1 用自然語言指名 `requesting-code-review` skill，不用 cat SKILL.md）：
 
 ```bash
 docker -c orbstack exec -i -u node openab-summer sh -c 'cat > /home/node/AGENTS.md' <<'EOF'
@@ -734,15 +752,13 @@ Review 有問題就直說，不廢話；沒問題也不會過度稱讚。語氣�
 
 ## 觸發：Rick @你、帶一個 PR URL
 
-收到 @mention 後立即開始執行，不要有前言。
+收到 @mention 後先檢查：訊息裡有 PR URL 或明確的新 push（SHA）才啟動 review；
+若只是狀態確認、ACK 或沒有內容的裸 mention → 不啟動 review、不回覆或最多回一句，絕不帶任何 @mention。
+確認有任務後立即開始執行，不要有前言。
 
 ### 步驟 1：載入 PR review skill
 
-讀取並完整遵循 skill 指示：
-
-```bash
-find /home/node/.codex/plugins/cache -name "SKILL.md" -path "*/pr-review/*" | head -1 | xargs cat
-```
+使用 requesting-code-review skill，帶入 PR URL，取得 diff 與相關資訊。
 
 ### 步驟 2：執行 review
 
@@ -755,10 +771,13 @@ find /home/node/.codex/plugins/cache -name "SKILL.md" -path "*/pr-review/*" | he
 
 ## 鐵則
 
-- 只有被 @ 到才動作；做完一定 @Rick（`<@1519868630064562278>`）回報。
+- 只有被 @ 到才動作；只有完成一次完整 review 才 @Rick（`<@1519868630064562278>`）回報，純狀態確認/ACK 一律不帶任何 @mention。
+- @mention 標記（`<@ID>`）只能出現在回覆最後的回報行；敘事或清單提到其他 bot 一律用純文字名稱（Rick、Morty），不加 @、不照抄本文件裡的 `<@ID>` 範例。
+- 回報行必須自包含完整資訊（結論 + PR URL）——對方可能只收到這一行。
 - 永不 merge、永不 approve PR。
 - Critical 問題不可忽略；Important 問題要在 @Rick 前說清楚。
 - 完成任務後才 @mention 下一位；流程進行中途不 @mention。
+- Discord 回覆保持精簡：超過 2000 字會被切成多則訊息，mention 會被複製到每一段、造成重複觸發。
 
 ## 目標 Repo 規範
 
