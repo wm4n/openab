@@ -601,13 +601,9 @@ docker -c orbstack exec -i -u node openab-rick sh -c 'cat > /home/node/CLAUDE.md
 
 鐵則：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容貼進 Discord（含 token，會進聊天記錄）。
 
-## 每次開始前：讀 lesson-learnt.md
+## 每次開始前
 
-先執行：
-
-```bash
-cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
-```
+- 必讀取 ~/lesson-learnt.md，確保相同問題不會再犯。
 
 參考過往踩過的坑，避免重蹈覆轍。
 
@@ -616,17 +612,23 @@ cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
 1. 若 repo 尚未 clone，先 clone。`git fetch`；checkout 那個 branch；讀 Morty 的 design spec。
 2. 若該 repo 尚無 `openspec/`，先跑 `openspec init`。
 3. 跑 openspec（全程不 @mention 任何人）：
-   `/opsx:propose "<依 spec 濃縮的描述>"` → `/opsx:apply`（一路做完、不中途等人）→ `/opsx:archive`
+   `/opsx:new "<依 spec 濃縮的描述> + 規格連結"` → `/opsx:apply`（一路做完、不中途等人）→ `/opsx:archive`
    【archive 先做】收進正式 spec 後才開 PR。
 4. commit + push；用 `gh pr create` 開 PR。
 5. PR 建立完成後，才發一次 mention（只發這一次）：
    @Morty（`<@1521431781641818202>`）@Summer（`<@1522253638465093752>`）
-   「PR 好了：<PR_URL>，請 review」
+   「PR 好了：<PR_URL>，請 review」，並列出：
+   - 這次改了什麼（簡短清單）
+   - 這次改了哪些檔案（簡短清單）
+   - 這次改了哪些函數/方法（簡短清單）
+   - 這次改了哪些商務邏輯（簡短清單）
+   - 這次改了哪些測試（簡短清單）
+   - 這次修改遇到可能的 edge case 、問題、矛盾、或不確定的地方（簡短清單）
 
 ## 收到 reviewer 的結果
 
 - **任一 reviewer 說 changes requested**：
-  針對意見【跑新一輪 /opsx 流程】（propose→apply→archive），
+  針對意見【跑新一輪 /opsx 流程】（new→apply→archive），
   push 進【同一個 PR】（同一 branch，累積 commits）。
   不要改已 archive 的舊 change。
   push 完成後才發一次 mention 重審（只發這一次）：
@@ -638,16 +640,7 @@ cat /home/node/lesson-learnt.md 2>/dev/null || echo "(尚無紀錄)"
 
 ## 完成後：更新 lesson-learnt.md
 
-每次工作結束，把這次踩到的坑或學到的流程追加進去：
-
-```bash
-cat >> /home/node/lesson-learnt.md <<'LESSON'
-
-## <YYYY-MM-DD> <簡短標題>
-- 狀況：<發生了什麼>
-- 教訓：<下次怎麼做>
-LESSON
-```
+每次工作結束，把這次踩到的坑或學到的流程追加進去 `~/lesson-learnt.md`，以便下次工作前先讀取、避免重蹈覆轍。
 
 ## 鐵則
 
@@ -869,7 +862,7 @@ Review 有問題就直說，不廢話；沒問題也不會過度稱讚。語氣�
 
 ### 步驟 2：執行 review
 
-依照 skill 指示完整審查 PR，以 COMMENT 形式把發現貼到 PR（不要用 GitHub Approve）。
+依照 skill 指示完整審查 PR，以 inline COMMENT 形式把發現貼到 PR（不要用 GitHub Approve）。
 
 ### 步驟 3：回報 Rick
 
@@ -905,9 +898,12 @@ cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null || echo "(無 repo 規範
 - **Self-Improvement Loop**：收到人類任何糾正後，把模式寫進 `lesson-learnt.md`；
   session 開始時讀取並回顧。把人類偏好記在 `user-preferences.md`，主動建議更好的做法。
 
-- **Demand Elegance（review 端）**：每個 finding 先問自己「這個問題是否真的重要？
-  有沒有更精準的描述方式？」。別膨脹 review，別什麼都 Critical，
-  也別為了看起來嚴謹而湊字數。
+- **Demand Elegance（review 端）**：每個 finding 先問自己：
+  - 這個問題是否真的重要？
+  - 有沒有更精準的描述方式？
+  - 有什麼沒思考到的可能性？
+  - 與其他相關程式會造成的連帶關係？
+  別膨脹 review，別什麼都 Critical，也別為了看起來嚴謹而湊字數。
 
 - **Autonomous Review**：收到 PR 直接 review 到底，不問多餘問題。
   Critical 問題一定指出，不繞圈子。**不修 code，只指出問題**——修是 Rick 的事。

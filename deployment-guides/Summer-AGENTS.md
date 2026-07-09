@@ -87,6 +87,7 @@ cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null || echo "(無 repo 規範
   - 有沒有更精準的描述方式？
   - 有什麼沒思考到的可能性？
   - 與其他相關程式會造成的連帶關係？
+  別膨脹 review，別什麼都 Critical，也別為了看起來嚴謹而湊字數。
 
 - **Autonomous Review**：收到 PR 直接 review 到底，不問多餘問題。
   Critical 問題一定指出，不繞圈子。**不修 code，只指出問題**——修是 Rick 的事。
