@@ -118,7 +118,7 @@ Discord 訊息 ──> openab(容器內 PID1) ──spawn──> claude-agent-ac
 
 ## Part B — 建立 GitHub Token(最小權限)
 
-> **解法 B 的安全前提:agent 一定讀得到這把 token(它有 Bash,`printenv` 就拿到)。所以安全不靠「藏」,靠「範圍小 + 可秒收回」。** 詳見 [安全須知](#安全須知務必讀)。
+> **安全前提:就算 token 不進 agent env(改走 gh 儲存的雙帳號),agent 仍讀得到憑證(有 Bash,`cat ~/.config/gh/hosts.yml` 就拿到)。所以安全不靠「藏」,靠「範圍小 + 可秒收回」。** 詳見 [安全須知](#安全須知務必讀)。
 
 ### B1. 兩個帳號、兩把 token
 
@@ -354,14 +354,15 @@ services:
     command: ["sleep", "infinity"] # 階段1:待命,方便進 Console
     environment:
       DISCORD_BOT_TOKEN: "${DISCORD_BOT_TOKEN}"
-      GH_TOKEN: "${GH_TOKEN}"
+      GH_TOKEN_WM4N: "${GH_TOKEN_WM4N}"
+      GH_TOKEN_CAC: "${GH_TOKEN_CAC}"
     volumes:
       - openab-home:/home/node # Claude、Codex 皆為 /home/node
 volumes:
   openab-home:
 ```
 
-下方 **Environment variables** 填 `DISCORD_BOT_TOKEN`、`GH_TOKEN` → Deploy。
+下方 **Environment variables** 填 `DISCORD_BOT_TOKEN`、`GH_TOKEN_WM4N`、`GH_TOKEN_CAC` → Deploy。
 
 > 沒 config 時 `openab run` 會 crash-loop、進不去 Console,故先用 sleep。此時顯示 **unhealthy 是正常的**(healthcheck 找不到 openab process)。
 
@@ -376,12 +377,14 @@ allowed_users    = ["你的_USER_ID"]
 [agent]
 command     = "claude-agent-acp"     # Codex：codex-acp
 working_dir = "/home/node"            # Claude、Codex 皆為 /home/node
-inherit_env = ["GH_TOKEN"]
+# GitHub token 不走 env：兩帳號登入 gh、任務內 gh auth switch 選帳號(見 Part F2)
 [pool]
 max_sessions = 5
 EOF
 claude auth login                    # Codex：codex login --device-auth
-gh auth setup-git                    # (選)git 憑證
+echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token   # 兩帳號登入(Codex 同)
+echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token
+gh auth setup-git                    # git 憑證(選帳號見 Part F2)
 ```
 
 > config 放 `/home/node`(該 user 可寫),避開 named volume 掛 `/etc/openab` 的 root 權限問題。
@@ -398,7 +401,7 @@ gh auth setup-git                    # (選)git 憑證
 
 > 你有 Codex(OpenAI/ChatGPT)帳號、想再跑一顆 Codex bot。**沿用上面所有步驟**(Mac mini 走 Part A–H、只有網頁的另一台走 Part I),只把下表的值換掉即可。Codex 官方映像也是 node:22 base,家目錄/使用者與 Claude **完全相同**,差異只有三處。
 
-**先決:另一顆 bot = 另一個 Discord Application + 另一把 token + 不同容器名/config/volume**(Part A 整套重做一次,拿到新的 `DISCORD_BOT_TOKEN`)。兩顆 bot **建議各用一個頻道**,避免同頻道兩隻都回。`GH_TOKEN` 可沿用同一把。
+**先決:另一顆 bot = 另一個 Discord Application + 另一把 token + 不同容器名/config/volume**(Part A 整套重做一次,拿到新的 `DISCORD_BOT_TOKEN`)。兩顆 bot **建議各用一個頻道**,避免同頻道兩隻都回。兩把 GitHub token(`GH_TOKEN_WM4N`/`GH_TOKEN_CAC`)可沿用同一組。
 
 | 項目                      | Claude                                   | Codex                                                                     |
 | ------------------------- | ---------------------------------------- | ------------------------------------------------------------------------- |
@@ -457,7 +460,8 @@ trusted_bot_ids    = ["BOT_A_ID", "BOT_B_ID"]  # 填另外兩顆 bot 的 Discord
 
 ```dotenv
 DISCORD_BOT_TOKEN=你的_morty_discord_bot_token
-GH_TOKEN=github_pat_morty_的_token
+GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained
+GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained
 JIRA_TOKEN=你的_atlassian_api_token
 JIRA_BASE_URL=https://yourorg.atlassian.net
 JIRA_EMAIL=your-email@company.com
@@ -469,7 +473,7 @@ JIRA_EMAIL=your-email@company.com
 [agent]
 command     = "claude-agent-acp"
 working_dir = "/home/node"
-inherit_env = ["GH_TOKEN", "JIRA_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL"]
+inherit_env = ["JIRA_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL"]   # GitHub 走 gh 雙帳號,不放 GH_TOKEN
 ```
 
 **Portainer Stack** Environment variables 要同步加入上述所有 JIRA 變數（Stack env 注入容器，config.toml inherit_env 再傳給 agent）。
@@ -492,7 +496,20 @@ ls -la /home/node/.claude/skills/   # 三條 symlink（jira-fetch/superpowers.br
 > ⚠️ **ACP skill 載入規則（實測）**：claude-agent-acp 只掃描 `~/.claude/skills/<name>/SKILL.md`；marketplace（`/plugins`）裝在 `~/.claude/plugins/cache/` 的**不會**被載入，所以裝完一定要 symlink 進 `~/.claude/skills/`。symlink 指 git checkout／plugin 目錄，**別指** cache 版本目錄（`.../1.0.0/`，更新就斷鏈）。
 > ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名。
 
+**gh 雙帳號登入**（Console，user `node`；`GH_TOKEN_WM4N/CAC` 已由 Stack env 注入）：
+
+```bash
+echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token
+echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token
+gh auth setup-git
+gh auth status   # 要看到 wm4n 與 cac-william 兩個 Logged in
+```
+
+> Portainer Stack 的 Environment variables 要把 `GH_TOKEN` 改成 `GH_TOKEN_WM4N`、`GH_TOKEN_CAC` 兩筆。
+
 **CLAUDE.md** 放入 `/home/node/CLAUDE.md`，包含：
+- 開工前依 repo owner 選 GitHub 身份（`gh auth switch` + per-repo 署名，見 Part F2）——這段開場與 Rick/Summer 共用同一份「選帳號」區塊
+- Repo 解析優先序第 4 步：個人（wm4n）任務不查公司對照表；公司任務查表前先切 `cac-william`
 - 四個角色觸發偵測（PR → D、JIRA 票號 → B1、GitHub Issue → B2、stack trace → C、純文字 → A）
 - 角色 A/B1/B2 使用 `superpowers.brainstorming` skill 產出 design spec；角色 C 使用 `superpowers.systematic-debugging` skill 分析
 - 角色 B1 取票使用 `jira-fetch` skill（帶票號為 ARGUMENTS、COMMENTS_COUNT 預設 5）
@@ -511,7 +528,8 @@ ls -la /home/node/.claude/skills/   # 三條 symlink（jira-fetch/superpowers.br
 
 ```dotenv
 DISCORD_BOT_TOKEN=你的_rick_discord_bot_token
-GH_TOKEN=github_pat_rick_的_token
+GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained
+GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained
 ```
 
 **Docker 啟動**（OrbStack，使用獨立 volume `openab-rick-home`）：
@@ -531,6 +549,18 @@ docker -c orbstack run -d \
 docker -c orbstack exec -u root openab-rick npm install -g @fission-ai/openspec@latest
 docker -c orbstack exec -u node openab-rick openspec --version  # 確認印出版本
 ```
+
+**gh 雙帳號登入**（`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入）：
+
+```bash
+docker -c orbstack exec -i -u node openab-rick sh -c '
+  echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token &&
+  echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token &&
+  gh auth setup-git'
+docker -c orbstack exec -u node openab-rick gh auth status   # wm4n + cac-william 兩個
+```
+
+> ⚠️ K3 未列出 Rick 的 config.toml。rollout 時確認 Rick 的 config 位置（掛載或 volume 內），若 `inherit_env` 仍含 `"GH_TOKEN"` 一併移除（GitHub 改走 gh 雙帳號）。
 
 **CLAUDE.md** 放入 `/home/node/CLAUDE.md`（heredoc 方式）：
 
@@ -552,6 +582,24 @@ docker -c orbstack exec -i -u node openab-rick sh -c 'cat > /home/node/CLAUDE.md
 - 對自己的實作充滿自信（「這是我見過最優雅的 PR，因為是我寫的」）
 - 完成後帶點傲嬌（「好了，PR 開好了，你們去 review 吧，_burp_，別搞砸」）
 - 只有被 @ 到才動作——就算是天才也不會沒事找事。
+
+## 開工前：依 repo owner 選 GitHub 身份（每個任務必做，先於任何 git/gh 操作）
+
+1. 從任務確定目標 `owner/repo`。
+2. 依 owner 決定帳號並記住對應署名：
+
+   | owner | 帳號 | git user.name | git user.email |
+   | --- | --- | --- | --- |
+   | `wm4n` | `wm4n`（個人） | `wm4n` | `<你的 wm4n GitHub 個人 email>` |
+   | `104corp` / `openabdev` / 其餘一律 | `cac-william`（公司） | `Agent(CAC) Smith` | `cac.agent.smith@104.com.tw` |
+   | 無法判斷 | —— 問人類，別猜 | | |
+
+3. 切換身份（`gh` 與 `git push` 都會跟著這個帳號走）：
+   `gh auth switch --hostname github.com --user <wm4n 或 cac-william>`
+4. clone 完該 repo 後，對它設 **local** 署名（不要用 --global）：
+   `git -C <repo> config user.name "<上表 name>"` 、 `git -C <repo> config user.email "<上表 email>"`
+
+鐵則：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容貼進 Discord（含 token，會進聊天記錄）。
 
 ## 每次開始前：讀 lesson-learnt.md
 
@@ -662,7 +710,8 @@ docker -c orbstack exec -u node openab-rick head -5 /home/node/CLAUDE.md
 
 ```dotenv
 DISCORD_BOT_TOKEN=你的_summer_discord_bot_token
-GH_TOKEN=github_pat_summer_的_token
+GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained
+GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained
 ```
 
 **Mac mini 主機 openab config**（`~/openab-summer/config.toml`，掛載為容器 `/etc/openab:ro`）：
@@ -677,16 +726,16 @@ trusted_bot_ids    = ["Rick_Bot_ID"]   # Rick 的 Discord User ID
 
 [agent]
 command     = "codex-acp"
-args        = ["-c", "shell_environment_policy.inherit=all"]   # ★ GH_TOKEN 傳入 bwrap shell 必要
+args        = ["-c", "shell_environment_policy.inherit=all"]
 working_dir = "/home/node"
-inherit_env = ["GH_TOKEN"]
+inherit_env = []   # GitHub 走 gh 雙帳號(hosts.yml),不放 GH_TOKEN
 
 [pool]
 max_sessions      = 5
 session_ttl_hours = 24
 ```
 
-> ⚠️ `args` 的 `shell_environment_policy.inherit=all`：codex-acp 預設不把 `inherit_env` 的變數傳入 bwrap sandbox 內的 shell，加這行才讓 `gh` 看到 GH_TOKEN。少了這行，`gh` 指令全部 ❌。
+> ⚠️ `args` 的 `shell_environment_policy.inherit=all`：保留即可。GitHub 憑證已改走 gh 儲存的雙帳號(`~/.config/gh/hosts.yml`)、不靠 env,故此旗標對 GitHub 不再必要;但留著不影響其他 env 傳遞。
 
 **Docker 啟動**（`--security-opt seccomp=unconfined` 必要，讓 bwrap 建 Linux namespace）：
 
@@ -727,6 +776,18 @@ docker -c orbstack exec -u node openab-summer sh -c '
 ```
 
 > ⚠️ **Codex skill 未完整驗證**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `requesting-code-review` skill；若找不到，回退在 AGENTS.md 步驟 1 用 `find /home/node/.codex/plugins/cache -name SKILL.md -path '*requesting-code-review*' | head -1 | xargs cat` 讀取。
+
+**gh 雙帳號登入**（`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入；bwrap 內 gh 用 hosts.yml，不需 env token）：
+
+```bash
+docker -c orbstack exec -i -u node openab-summer sh -c '
+  echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token &&
+  echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token &&
+  gh auth setup-git'
+docker -c orbstack exec -u node openab-summer gh auth status   # wm4n + cac-william 兩個
+```
+
+> 一次性登入用 `-i`（互動）讓 stdin 帶 token；`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入容器，故 exec 內可見。
 
 **⚠️ Codex 內部 config**（`/home/node/.codex/config.toml`，存在 volume 持久化）：
 
@@ -777,6 +838,24 @@ docker -c orbstack exec -i -u node openab-summer sh -c 'cat > /home/node/AGENTS.
 - 絕不廢話，有話直說
 
 Review 有問題就直說，不廢話；沒問題也不會過度稱讚。語氣犀利但專業，review 本身必須嚴謹確實。
+
+## 開工前：依 repo owner 選 GitHub 身份（每個任務必做，先於任何 git/gh 操作）
+
+1. 從任務確定目標 `owner/repo`。
+2. 依 owner 決定帳號並記住對應署名：
+
+   | owner | 帳號 | git user.name | git user.email |
+   | --- | --- | --- | --- |
+   | `wm4n` | `wm4n`（個人） | `wm4n` | `<你的 wm4n GitHub 個人 email>` |
+   | `104corp` / `openabdev` / 其餘一律 | `cac-william`（公司） | `Agent(CAC) Smith` | `cac.agent.smith@104.com.tw` |
+   | 無法判斷 | —— 問人類，別猜 | | |
+
+3. 切換身份（`gh` 與 `git push` 都會跟著這個帳號走）：
+   `gh auth switch --hostname github.com --user <wm4n 或 cac-william>`
+4. clone 完該 repo 後，對它設 **local** 署名（不要用 --global）：
+   `git -C <repo> config user.name "<上表 name>"` 、 `git -C <repo> config user.email "<上表 email>"`
+
+鐵則：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容貼進 Discord（含 token，會進聊天記錄）。
 
 ## 觸發：Rick @你、帶一個 PR URL
 
@@ -878,13 +957,14 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 **Token 輪替/撤銷:**
 
 - 換 token:更新 `~/.openab-secrets.env` → `rm -f` + 重跑。
+- 換某帳號 token:更新 `~/.openab-secret-*.env` 對應的 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC` → `rm -f` 重建容器 → 重跑該容器的 gh 雙帳號登入(Part F / K)。
 - 出事止血:到 GitHub 刪掉該 token,或把 machine user 踢出 repo collaborator。
 
 ---
 
 ## 安全須知(務必讀)
 
-**解法 B(以及解法 A 磁碟法)都不是「安全」,是「方便」。** 只要 agent 能跑 Bash,它就讀得到 token(`printenv GH_TOKEN` / `cat ~/.config/gh/hosts.yml`),你無法對它藏。所以:
+**把兩把 token 登入 gh、每任務 `gh auth switch`,不是「安全」,是「方便」。** 只要 agent 能跑 Bash,它就讀得到憑證(token 不進 env,但 `cat ~/.config/gh/hosts.yml` 仍讀得到),你無法對它藏。所以:
 
 > **假設這把 token 一定會被洩漏或濫用(prompt injection:惡意指令可藏在 Discord 訊息、repo 內容、issue、README),確保損害小且可逆。**
 
@@ -895,7 +975,7 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 3. **設過期 + 可秒收回**(刪 token / 踢 collaborator)。
 4. **當作一定會被注入** → 所以前三點才是安全網。
 
-想要更高一級(agent 連原始密鑰都摸不到):**GitHub App + 短效 installation token**、或**宿主機憑證代理(auth proxy)**、或唯讀單 repo **deploy key**。POC 用 B 即可;正式給團隊建議升級到 GitHub App。
+想要更高一級(agent 連原始密鑰都摸不到):**GitHub App + 短效 installation token**、或**宿主機憑證代理(auth proxy)**、或唯讀單 repo **deploy key**。POC 用這套(gh 雙帳號)即可;正式給團隊建議升級到 GitHub App。
 
 ---
 
@@ -903,7 +983,7 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 
 | 症狀                                                                                               | 原因                                                                               | 解法                                                                                               |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| **手動 `docker exec` clone 成功、但叫 bot clone 失敗**                                             | openab `env_clear()` 把 `GH_TOKEN` 擋在 agent 外                                   | config `[agent]` 加 `inherit_env = ["GH_TOKEN"]` → restart(本 runbook 解法 B)                      |
+| **手動 `docker exec` clone/push 成功、但叫 bot 失敗**                                              | bot 忘了先 `gh auth switch` 選帳號,或該帳號沒登入 gh                               | 確認 context 檔有「選帳號」開場(Part F2);`gh auth status` 確認兩帳號都在                           |
 | `failed to read /etc/openab/config.toml: Is a directory`                                           | run 時來源檔不存在,Docker 自動把來源建成目錄,**colima 還會快取**這個目錄           | 改**掛目錄** `-v ~/oab:/etc/openab:ro`,並用**沒被污染過的新路徑**;OrbStack(VirtioFS)幾乎不會中這雷 |
 | agent 起不來 / 不回應,log 顯示 command 問題                                                        | `command` 設成裸 `claude`(不講 ACP)                                                | config 設 `command = "claude-agent-acp"`                                                           |
 | `gh auth status` 顯示登入,但 `git clone` 仍要帳密                                                  | 沒設 git 的 credential helper                                                      | `gh auth setup-git`(Part F)                                                                        |
@@ -913,7 +993,9 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 | (Portainer)Console 用 `node` 進不去:`unable to find user node: no matching entries in passwd file` | build 到錯的 Dockerfile(基礎 `Dockerfile` 是 `agent` 使用者,非 Claude 版的 `node`) | 用官方 `openab-claude:latest`;或自 build 時把根 `Dockerfile` 換成 `Dockerfile.claude`(見 Part I)   |
 | (Portainer)容器一直 unhealthy                                                                      | sleep 待命階段沒有 openab process(healthcheck 抓 `pgrep openab`)                   | 正常;完成 Part I3 切回 `openab run` 後即 healthy                                                   |
 | **[Codex]** Summer 所有 shell 指令 ❌（`pwd`、`git`、`gh` 全部失敗，log 顯示 `unshare failed: Operation not permitted`） | Docker 預設 seccomp profile 擋住 `clone`/`unshare` syscall，bwrap 無法建立 Linux user namespace | 重建容器加 `--security-opt seccomp=unconfined`（見 K4）。驗證：`docker -c orbstack exec openab-summer unshare --user echo ok` |
-| **[Codex]** `gh` 指令 ❌，但 `docker -c orbstack exec -u node openab-summer gh ...` 直接跑沒問題   | codex-acp 預設不把 `inherit_env` 的變數傳入 bwrap sandbox 內的 shell；GH_TOKEN 對 `gh` 不可見 | openab `config.toml` `[agent]` 加 `args = ["-c", "shell_environment_policy.inherit=all"]` → restart |
+| **[Codex]**(僅用 env-based fallback 時)`gh` 指令 ❌、直接 `docker exec` 沒問題                    | fallback 把 token 放 env 時,codex-acp 預設不把 env 傳入 bwrap sandbox shell        | `config.toml` `[agent]` 加 `args = ["-c", "shell_environment_policy.inherit=all"]` → restart。主線走 gh 雙帳號(hosts.yml)不受此影響 |
+| **push 403 或 commit author 錯**                                                                   | 切錯帳號或忘了切(wm4n repo 用到 cac-william、反之亦然)                             | 開工前 `gh auth switch --user <對的帳號>` + per-repo 設 local 署名(Part F2)                         |
+| **`gh auth login`/`switch` 拒絕、說 GH_TOKEN 環境變數存在**                                       | env 有裸 `GH_TOKEN`                                                                | 改用 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC`,別設裸 `GH_TOKEN`                                              |
 | **[Codex]** 在 openab config `args` 加 `--dangerously-bypass-approvals-and-sandbox` 導致 Connection Lost | `codex-acp` 是獨立 binary，不接受標準 `codex` CLI 的此 flag | 改用 `sandbox_mode = "danger-full-access"` 寫進容器 `~/.codex/config.toml`（top-level）        |
 | **[Codex]** `sandbox_permissions = ["network-full-access"]` 加了沒效果                              | `sandbox_permissions` 不是 `codex-acp` 合法的 config key（會被 silently ignore）   | 同上，用 `sandbox_mode = "danger-full-access"`（參見 openab issue #1047）                          |
 
