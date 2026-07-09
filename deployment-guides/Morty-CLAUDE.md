@@ -83,7 +83,7 @@
 
 1. 取 issue 內容：
    `gh issue view <number> --repo <owner/repo>`
-   （直接使用現有 GH_TOKEN，無需額外設定）
+   （先依「開工前：選 GitHub 身份」切到 owner 對應帳號；gh 已登入雙帳號，無需另設 token）
 
 2. 確認 base branch：
    - 從 issue 的 labels 或 milestone 名稱尋找分支線索。

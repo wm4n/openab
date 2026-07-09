@@ -281,7 +281,7 @@ docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 wm4n 
 
 | owner | 帳號 | git user.name | git user.email |
 | --- | --- | --- | --- |
-| `wm4n` | `wm4n`(個人) | `wm4n` | `<你的 wm4n 個人 email>` |
+| `wm4n` | `wm4n`(個人) | `wm4n` | `<你的 wm4n GitHub 個人 email>` |
 | `104corp`、`openabdev`、其餘一律 | `cac-william`(公司) | `Agent(CAC) Smith` | `cac.agent.smith@104.com.tw` |
 | 無法判斷 | 問人類,別猜 | | |
 
