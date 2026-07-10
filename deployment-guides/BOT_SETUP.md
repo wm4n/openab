@@ -30,6 +30,7 @@
   - [Part E — Claude Code 登入](#part-e--claude-code-登入)
   - [Part F — 容器內 git/gh 設定(雙帳號)](#part-f--容器內-gitgh-設定雙帳號)
   - [Part F2 — 多帳號身份切換](#part-f2--多帳號身份切換)
+  - [Part F3 — 雙身份 rollout 清單](#part-f3--雙身份-rollout-清單)
   - [Part G — 放入 workspace 脈絡 CLAUDE.md](#part-g--放入-workspace-脈絡-claudemd)
   - [Part H — 端對端驗證](#part-h--端對端驗證)
   - [Part I — Portainer(另一台,UI-only)部署](#part-i--portainer另一台ui-only部署)
@@ -137,11 +138,23 @@ GitHub → Settings → **Developer settings** → **Fine-grained tokens** → G
 - **Expiration**:90 天(別選 No expiration)
 - **Resource owner**:該帳號;若 repo 在 org,選 org(org 需先允許/核准 fine-grained token)
 - **Repository access**:**Only select repositories** → 只勾要用的 repo
-- **Permissions**:
-  - `Contents` → Read(只 clone)/ Read and write(要 push)
-  - `Pull requests` → Read and write(要它開 PR 才加)
-  - `Metadata` → Read(必帶,自動)
+- **Permissions → Repository permissions**(只開這幾項,其餘全部 No access):
+  - `Contents` → **Read and write**(clone/fetch + push commit/branch)
+  - `Pull requests` → **Read and write**(開 PR、貼 review comment、讀 diff)
+  - `Issues` → **Read and write**(**只有 Morty 需要**:`gh issue comment` 回貼 spec;Rick/Summer 用不到可留 No access)
+  - `Metadata` → **Read**(勾上面任一項就會自動帶上、拿不掉,正常)
+- **Account permissions**:全部 No access(bot 只碰 repo)。
 - 產生 → 複製(`github_pat_...`)
+
+> **絕對別開的權限**(這些才是被 prompt injection 時出事的來源):
+> - `Workflows` ❌ ── 開了 = token 能改 `.github/workflows/`、能推惡意 CI。bot 不改 workflow。
+> - `Administration` ❌ ── repo 設定、collaborator、刪 repo。
+> - `Actions` / `Secrets` / `Webhooks` / `Environments` / `Deployments` ❌ ── 全用不到。
+
+> **org repo 的雷:**
+> 1. **一把 fine-grained PAT 只綁一個 resource owner**。公司 repo 若橫跨 `104corp` 與 `openabdev` 兩個 org,`GH_TOKEN_CAC` 一把不夠 ── 每個 org 各建一把。
+> 2. **org 要先放行**:org Settings → Personal access tokens 要允許 fine-grained token;送出後 token 可能卡 **pending approval**,org admin 核准前對該 org repo 無效(「token 建好卻 clone 不到」最常見主因)。
+> 3. Morty 的 CAC token 記得**多勾 `104corp/cac-ai-rules`**(讀產品對照表要 `Contents` read)。
 
 > **若你用的是 classic PAT(`ghp_`)**:classic 無法限定單一 repo(`repo` scope = 帳號能看的所有 repo),所以**務必搭配 machine user** 用「帳號成員資格」框住範圍,並**拿掉 `workflow` scope**(沒在用的話)——`workflow` 會讓被注入的 agent 推惡意 CI。
 
@@ -282,7 +295,7 @@ docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 wm4n 
 | owner | 帳號 | git user.name | git user.email |
 | --- | --- | --- | --- |
 | `wm4n` | `wm4n`(個人) | `wm4n` | `<你的 wm4n GitHub 個人 email>` |
-| `104corp`、`openabdev`、其餘一律 | `cac-william`(公司) | `Agent(CAC) Smith` | `cac.agent.smith@104.com.tw` |
+| `104corp`、`openabdev`、其餘一律 | `cac-william`(公司) | 依 bot:`Agent(CAC) Rick/Morty/Summer` | `cac.agent.{rick,morty,summer}@104.com.tw` |
 | 無法判斷 | 問人類,別猜 | | |
 
 **每個任務開工步驟:** 判斷 owner → `gh auth switch --hostname github.com --user <帳號>` → clone 後 `git -C <repo> config user.name/email`(local)。切換後 `gh` 與 `git push` 都用該帳號。
@@ -290,6 +303,42 @@ docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 wm4n 
 > **併發取捨:** `gh auth switch` 是整個容器全域。同一顆 bot 若同時跑兩個不同帳號的 thread(pool 併發)會互搶身份。單人主導、一次一個 feature 幾乎不會遇到。
 >
 > **Fallback(需跨帳號併發時再上):** 改「clone 時把 token 綁進該 repo remote + 每條 gh 指令加 `GH_TOKEN=$GH_TOKEN_XXX` 前綴」。此版需把兩把 token 放回 `inherit_env` 供逐條引用;`git remote -v` 含 token,務必守「不得貼進 Discord」鐵則。
+
+---
+
+## Part F3 — 雙身份 rollout 清單
+
+把一顆原本用單一 `GH_TOKEN` 的 bot 升級成雙身份,每顆各做一遍(Mac mini 用 `docker -c orbstack exec`,Portainer 用網頁 Console;一律 user `node`):
+
+1. **建兩把 fine-grained PAT**:`wm4n` 釘個人 repo、`cac-william` 釘公司 repo(權限見 [Part B2](#b2-建-fine-grained-pat優先釘死-repo))。
+2. **改 secrets**:env 檔改成 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC`,**移除裸 `GH_TOKEN`**。改 env 動不了執行中容器 → Mac mini `docker ... rm -f` 後**重建**;Portainer 改 Stack env 後 **redeploy**。
+3. **gh 雙帳號登入**(容器內,user `node`):
+   ```bash
+   echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token
+   echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token
+   gh auth setup-git
+   gh auth status                              # 應看到 wm4n + cac-william 兩個
+   ls -la /home/node/.config/gh/hosts.yml      # 檔案在了
+   ```
+4. **改 config**:`[agent].inherit_env` 移除 `GH_TOKEN`(**Morty 保留 `JIRA_*`**)→ 重啟(config 掛載)或重建。
+5. **寫入更新後的 context 檔**(heredoc,含「選帳號」開場;見 [Part K](#part-k--三-bot-接力-pipelinemortricksummer))。
+6. **煙霧測試**:`gh auth switch --user wm4n` → clone+push 一個個人 repo(署名=wm4n、無 403);再 `gh auth switch --user cac-william` → 對一個公司 repo 同樣測。
+7. **端對端**:在 #dev-bot 各跑一條個人 GitHub Issue 與一條公司任務,確認兩邊 PR 的 commit 署名正確、無 403。
+
+> **gh 登入為何「restart 就消失」?** 登入狀態存在 `$HOME/.config/gh/hosts.yml`。只要 (a) 以 **node**(`HOME=/home/node`)登入、(b) `/home/node` 掛**持久化 volume**、(c) env 沒有**裸 `GH_TOKEN`** 蓋掉,它就會跟 `~/.claude` 一樣留著。三個常見「消失」原因:登入時是 **root**(寫到 `/root`、非持久且 agent 讀不到)、volume 沒持久化、或 env 還有**裸 `GH_TOKEN`**(gh 改用 env、根本不寫 hosts.yml)。快速定位:`whoami`、`ls -la /home/node/.config/gh/hosts.yml`、`env | grep -i gh_token`、`ls -la /home/node/.claude`(若 .claude 也不見 → volume 問題)。
+>
+> **Portainer restart-proof 保險做法:** 常 restart 的 bot 可把 gh 登入做進開機——Stack `command` 改成先登入再 `exec openab run`,token 由 Stack env 提供,每次啟動重建 hosts.yml、不靠 volume 持久化:
+> ```yaml
+>     command:
+>       - sh
+>       - -lc
+>       - >
+>         echo "$GH_TOKEN_WM4N" | gh auth login --hostname github.com --with-token &&
+>         echo "$GH_TOKEN_CAC"  | gh auth login --hostname github.com --with-token &&
+>         gh auth setup-git &&
+>         exec openab run -c /home/node/config.toml
+> ```
+> (前提:PID1 以 `node`、`HOME=/home/node` 執行才會寫對位置;若 PID1 是 root,改用 `su node -c '...'` 或 service 設 `user: node`。)
 
 ---
 
@@ -986,6 +1035,7 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md
 | org 私有 repo clone 不到(classic PAT)                                                              | org 強制 SAML SSO,token 未授權                                                     | 到該 token 頁 **Configure SSO → Authorize**                                                        |
 | `orb restart` 說 OrbStack is not running,但 `orb version` 有反應                                   | `orb version` 只印 CLI 版本;當前 docker engine 其實是 colima                       | `docker context show` 確認;openab 一律 `-c orbstack`                                               |
 | 改了 token 沒生效                                                                                  | 執行中容器無法改 env                                                               | `rm -f` 後重跑 Part D                                                                              |
+| **restart 後 `gh auth status` 變空 / `hosts.yml` 不見**                                            | 登入時是 root(寫到 `/root`)、`/home/node` 沒持久化、或 env 還有裸 `GH_TOKEN` 蓋掉 | 以 **node** 重登;確認 `/home/node` 掛 volume(`ls ~/.claude` 還在);移除裸 `GH_TOKEN`;常 restart 用 [Part F3](#part-f3--雙身份-rollout-清單) 開機自動重登 |
 | (Portainer)Console 用 `node` 進不去:`unable to find user node: no matching entries in passwd file` | build 到錯的 Dockerfile(基礎 `Dockerfile` 是 `agent` 使用者,非 Claude 版的 `node`) | 用官方 `openab-claude:latest`;或自 build 時把根 `Dockerfile` 換成 `Dockerfile.claude`(見 Part I)   |
 | (Portainer)容器一直 unhealthy                                                                      | sleep 待命階段沒有 openab process(healthcheck 抓 `pgrep openab`)                   | 正常;完成 Part I3 切回 `openab run` 後即 healthy                                                   |
 | **[Codex]** Summer 所有 shell 指令 ❌（`pwd`、`git`、`gh` 全部失敗，log 顯示 `unshare failed: Operation not permitted`） | Docker 預設 seccomp profile 擋住 `clone`/`unshare` syscall，bwrap 無法建立 Linux user namespace | 重建容器加 `--security-opt seccomp=unconfined`（見 K4）。驗證：`docker -c orbstack exec openab-summer unshare --user echo ok` |
