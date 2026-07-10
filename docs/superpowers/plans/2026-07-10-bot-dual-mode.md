@@ -40,7 +40,7 @@
 
 ## File Structure
 
-- Create `deployment-guides/bot-skills/_shared/engineer-baseline.md` — Layer 1 共用工程師基座（單一來源）。
+- Create `deployment-guides/bot-skills/_shared/engineer-baseline.md` — Layer 1 共用工程師基座（**單一來源，不內嵌進 persona**；部署時由 setup 以 `cat baseline + persona > CLAUDE.md` 組合，方案 B）。
 - Create `deployment-guides/bot-skills/requirement-analysis/SKILL.md` — Morty 分析→spec 流程 + 人工閘門。
 - Create `deployment-guides/bot-skills/feature-development/SKILL.md` — Rick openspec 開發→PR 流程。
 - Create `deployment-guides/bot-skills/change-review/SKILL.md` — Morty(Claude) PR 複審。
@@ -60,11 +60,11 @@
 - Source: `deployment-guides/Morty-CLAUDE.md:11-27,145-153,173-203`、`Rick-CLAUDE.md:105-108`、三檔共用段
 
 **Interfaces:**
-- Produces: 一段可被三份 persona 檔逐字內嵌的 Markdown 區塊，含明確起訖標記 `<!-- ENGINEER-BASELINE:START -->` / `<!-- ENGINEER-BASELINE:END -->`，供後續一致性比對。
+- Produces: 一份**獨立** Markdown 檔（Layer 1 共用基座），部署時由 setup script 以 `cat engineer-baseline.md <persona>.md > /home/node/CLAUDE.md` 組合成各 bot 完整脈絡（方案 B）。**不**內嵌進 persona 檔，repo 內只此一份。內含「本 bot 署名見 persona 署名表」的引用，實際 name/email 由各 persona 提供（Task 5）。
 
-- [ ] **Step 1: 建立檔案骨架與起訖標記**
+- [ ] **Step 1: 建立檔案骨架**
 
-建立 `deployment-guides/bot-skills/_shared/engineer-baseline.md`，最外層包 `<!-- ENGINEER-BASELINE:START -->` 與 `<!-- ENGINEER-BASELINE:END -->`。內含以下小節（順序如下）。
+建立 `deployment-guides/bot-skills/_shared/engineer-baseline.md`，為一份可獨立閱讀的共用基座檔（部署時 cat 在各 persona 之前）。內含以下小節（順序如下）。
 
 - [ ] **Step 2: 寫入「工程師模式（預設）」小節（新增內容，全文如下）**
 
@@ -84,9 +84,9 @@
 只有人類明確要求走正式流程（走流程 / 正式開發 / 開規格 / 正式 review），才改用對應的 pipeline skill。
 ```
 
-- [ ] **Step 3: 搬入「開工前：依 repo owner 選 GitHub 身份」（verbatim 自 Morty-CLAUDE.md:11-27）**
+- [ ] **Step 3: 搬入「開工前：依 repo owner 選 GitHub 身份」（自 Morty-CLAUDE.md:11-27，僅共用機制）**
 
-自 `Morty-CLAUDE.md` 第 11–27 行整段（含帳號對照表、`gh auth switch`、per-repo local 署名、絕不貼 token 的鐵則）逐字複製為本檔一節。帳號對照表中的 `git user.name` 欄位是**每隻不同**的署名（Morty/Rick/Summer），因此本節表格的 name 欄改為 `Agent(CAC) <你的角色名>` 佔位說明，並加一行註記：「`<你的角色名>` 由各 bot persona 檔指定（Morty/Rick/Summer）」。email 欄同樣改 `cac.agent.<角色>@104.com.tw` 佔位。
+自 `Morty-CLAUDE.md` 第 11–27 行搬入**共用機制**：從任務確定 owner/repo；owner→帳號規則（`wm4n`→wm4n 個人；`104corp`/`openabdev`/其餘→cac-william 公司；不明→問人類）；`gh auth switch --hostname github.com --user <帳號>`；clone 後對該 repo 設 **local** 署名（非 --global）；絕不把 `gh auth status`/`hosts.yml`/`git remote -v`（含 token）貼進 Discord。**署名的實際 name/email 值不放這裡**——本節表格的 name/email 欄寫「**見本 bot persona 的署名表**」，並註記「per-repo local 署名的 name/email 由各 bot persona 檔（Morty/Rick/Summer）提供」。細節部署步驟引用 BOT_SETUP.md Part F2。
 
 - [ ] **Step 4: 搬入「目標 Repo 規範」（verbatim 自 Morty-CLAUDE.md:173-183）**
 
@@ -307,7 +307,7 @@ git commit -m "docs(bots): 新增 change-review skill（Morty/Claude + Summer/Co
 
 ---
 
-### Task 5: 瘦身三份 persona 檔（Layer 1+2+指路）
+### Task 5: 瘦身三份 persona 檔（Layer 2 個性 + 署名表 + 指路；**不含** baseline）
 
 **Files:**
 - Modify: `deployment-guides/Morty-CLAUDE.md`
@@ -315,8 +315,8 @@ git commit -m "docs(bots): 新增 change-review skill（Morty/Claude + Summer/Co
 - Modify: `deployment-guides/Summer-AGENTS.md`
 
 **Interfaces:**
-- Consumes: `_shared/engineer-baseline.md`（Task 1）、四個 skill 名稱（Task 2-4）。
-- Produces: 三份薄 persona 檔，供 Task 8 heredoc/symlink 進容器。
+- Consumes: 四個 skill 名稱（Task 2-4）。**不**內嵌 `engineer-baseline.md`（方案 B：部署時 cat 組合）。
+- Produces: 三份薄 persona 檔（個性 + 本 bot 署名表 + 指路），供 Task 6 部署時與 baseline 組合。每份含各自的**署名表**（供 baseline 的「見 persona 署名表」引用）。
 
 - [ ] **Step 1: 重寫 Morty-CLAUDE.md**
 
@@ -324,7 +324,14 @@ git commit -m "docs(bots): 新增 change-review skill（Morty/Claude + Summer/Co
 1. 標題 + 身份（保留原 3-5 行文字）。
 2. 回覆語氣（保留原 7-9 行 verbatim）。
 3. 個人工程立場（自原 185 段擷取 Morty 專屬：分析端 Demand Elegance、Completeness、Spec Mindset，濃縮為 2-3 行）。
-4. 內嵌 `engineer-baseline.md` 的 `START/END` 區塊（verbatim；帳號表 name 欄填 `Agent(CAC) Morty`、email `cac.agent.morty@104.com.tw`、wm4n 署名照原表）。
+4. **本 bot 署名表**（供 baseline 的「見 persona 署名表」引用）：
+```markdown
+## 本 bot 署名（per-repo local git config 用）
+| owner | git user.name | git user.email |
+| --- | --- | --- |
+| `wm4n`（個人） | `wm4n` | `<你的 wm4n GitHub 個人 email>` |
+| `104corp`/`openabdev`/其餘 | `Agent(CAC) Morty` | `cac.agent.morty@104.com.tw` |
+```
 5. **指路段（全文如下）：**
 ```markdown
 ## 何時進入流程模式
@@ -360,7 +367,7 @@ git commit -m "docs(bots): 新增 change-review skill（Morty/Claude + Summer/Co
 ```
 移除原 37-64 流程細節。
 
-- [ ] **Step 4: 驗證瘦身結果（流程內容已移除、指路在、baseline 在）**
+- [ ] **Step 4: 驗證瘦身結果（流程移除、指路在、署名表在、baseline 不重複）**
 
 Run:
 ```bash
@@ -368,12 +375,13 @@ cd /Users/william.chao/workspace/ai/openab/deployment-guides
 for f in Morty-CLAUDE.md Rick-CLAUDE.md Summer-AGENTS.md; do
   echo "=== $f ==="
   grep -q "何時進入流程模式" $f && echo "指路段 OK"
-  grep -q "ENGINEER-BASELINE:START" $f && echo "baseline 內嵌 OK"
+  grep -q "本 bot 署名" $f && echo "署名表 OK"
+  grep -q "gh auth switch\|目標 Repo 規範\|Self-Improvement" $f && echo "警告：baseline 內容不該出現在 persona（方案 B）" || echo "無 baseline 重複 OK"
   grep -c "opsx:\|角色 A\|角色 B1\|/opsx" $f | sed 's/^/流程殘留計數(應為0): /'
 done
 wc -l Morty-CLAUDE.md Rick-CLAUDE.md Summer-AGENTS.md
 ```
-Expected: 每檔「指路段 OK」「baseline 內嵌 OK」；流程殘留計數為 0；行數明顯小於原始（Morty 從 203→約 60 內、Rick 從 120→約 55 內、Summer 從 99→約 55 內）。
+Expected: 每檔「指路段 OK」「署名表 OK」「無 baseline 重複 OK」；流程殘留計數為 0；行數明顯小於原始（各檔約 25–40 行內）。
 
 - [ ] **Step 5: Commit**
 
@@ -391,17 +399,22 @@ git commit -m "docs(bots): 瘦身三份 persona 檔為 Layer 1+2+指路（流程
 - Modify: `deployment-guides/BOT_SETUP.md`（K2 504-570、K3 572-745、K4 747-975、Part K 導言 488-490、附錄範例檔）
 
 **Interfaces:**
-- Consumes: 瘦身後的三份 persona 檔（Task 5）、四個 skill（Task 2-4）。
-- Produces: 可據以部署的 runbook（heredoc 內容＝瘦 persona；新增 skill clone+symlink 步驟）。
+- Consumes: `_shared/engineer-baseline.md`（Task 1）、瘦身後三份 persona 檔（Task 5）、四個 skill（Task 2-4）。
+- Produces: 可據以部署的 runbook。部署時 `/home/node/CLAUDE.md`（Summer 為 AGENTS.md）由 **baseline + persona 兩檔組合**產生（方案 B），非單一 heredoc；新增 skill clone+symlink 步驟。
 
 - [ ] **Step 1: 更新 Part K 導言（488-490）**
 
 補一句雙模式說明：「三隻 bot 預設為資深工程師模式（隨手問答/看 code 不開流程）；被明確要求走流程時才觸發對應 pipeline skill。」
 
-- [ ] **Step 2: 更新 K2（Morty）heredoc 與 skill 安裝**
+- [ ] **Step 2: 更新 K2（Morty）——CLAUDE.md 組合 + skill 安裝**
 
-- 把 K2 內描述 CLAUDE.md 內容的條列（559-568）改為指向瘦身後 persona（Layer 1+2+指路）。
-- heredoc 段（若存在於 K2/K3/K4）改為瘦身後全文。
+- 把 K2 內描述 CLAUDE.md 內容的條列（559-568）改為：CLAUDE.md ＝ `engineer-baseline.md`（共用基座）＋ 瘦身後 Morty persona（個性 + 署名表 + 指路），部署時組合。
+- 原 heredoc 段改為**組合指令**（clone 後從 repo 兩檔 cat）：
+```bash
+# CLAUDE.md = baseline + persona（方案 B：部署時組合，repo 內單一來源）
+CK=/home/node/github-repo/openab/deployment-guides
+cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Morty-CLAUDE.md" > /home/node/CLAUDE.md
+```
 - 在既有 skill 安裝區塊（530-546）**新增** pipeline skill 的 clone+symlink：
 ```bash
 # pipeline skill：clone openab repo（或 sparse-checkout bot-skills/）後 symlink 進 ~/.claude/skills/
@@ -410,17 +423,18 @@ ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/requirement-a
 ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review        /home/node/.claude/skills/change-review
 ls -la /home/node/.claude/skills/   # requirement-analysis / change-review symlink 都在
 ```
-> `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）。
+> `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）。同一份 openab checkout 同時供 CLAUDE.md 組合與 skill symlink 使用。
 
-- [ ] **Step 3: 更新 K3（Rick）heredoc 與 skill 安裝**
+- [ ] **Step 3: 更新 K3（Rick）——CLAUDE.md 組合 + skill 安裝**
 
-- heredoc 改為瘦身後 Rick-CLAUDE.md 全文。
+- 原 heredoc 改為組合指令：`cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Rick-CLAUDE.md" > /home/node/CLAUDE.md`。
 - 新增 symlink：`feature-development`。
 
-- [ ] **Step 4: 更新 K4（Summer）heredoc 與 skill 安裝**
+- [ ] **Step 4: 更新 K4（Summer）——AGENTS.md 組合 + skill 安裝**
 
-- heredoc 改為瘦身後 Summer-AGENTS.md 全文。
+- 原 heredoc 改為組合指令：`cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Summer-AGENTS.md" > /home/node/AGENTS.md`。
 - 新增 Codex skill 安裝（依 Codex 機制；若未定則標注「rollout 時確認 Codex skill 路徑」並先放 `change-review-codex` symlink 指令佔位）。
+- 註：Codex 若不吃 filesystem skill（spec §9），退回把 `change-review-codex` 內文 embed 進 Summer-AGENTS.md（沿用既有 Summer 「skill 精華 embed」前例），此時組合後 AGENTS.md 仍＝ baseline + persona(含 review 流程)。
 
 - [ ] **Step 5: 驗證 BOT_SETUP.md 一致性**
 
@@ -429,10 +443,11 @@ Run:
 cd /Users/william.chao/workspace/ai/openab/deployment-guides
 grep -c "requirement-analysis\|feature-development\|change-review" BOT_SETUP.md   # skill 安裝步驟都在
 grep -c "資深工程師模式\|pipeline skill" BOT_SETUP.md                              # 雙模式導言在
+grep -c "engineer-baseline.md" BOT_SETUP.md                                        # baseline+persona 組合指令在
 # heredoc 內若仍有大段流程（角色 A/opsx 詳細步驟）代表沒瘦成功：
-grep -n "角色 B1：JIRA 任務分析\|/opsx:apply.*一路做完" BOT_SETUP.md || echo "heredoc 已無重流程內文 OK"
+grep -n "角色 B1：JIRA 任務分析\|/opsx:apply.*一路做完" BOT_SETUP.md || echo "已無重流程內文 OK"
 ```
-Expected: 第一個數字 ≥ 4；第二個 ≥ 1；`heredoc 已無重流程內文 OK`。
+Expected: 第一個數字 ≥ 4；第二、三個 ≥ 1（Summer 若走 embed 退路，engineer-baseline 組合仍在）；`已無重流程內文 OK`。
 
 - [ ] **Step 6: Commit**
 
@@ -471,8 +486,8 @@ git commit -m "docs(bots): BOT_SETUP.md 改雙模式——薄 persona heredoc + 
 ## C. Codex（Summer）skill 支援（spec §9 待驗）
 - [ ] Summer 容器能載入 change-review(-codex)；若不吃 filesystem skill，退回 AGENTS.md 內保留 review 流程（仍加 Layer 1+個性框架）。
 
-## D. persona 交付
-- [ ] 各容器 /home/node/CLAUDE.md（Summer 為 AGENTS.md）＝瘦身版；若採 symlink，確認 Claude Code 有自動載入。
+## D. 脈絡檔交付（方案 B：baseline + persona 組合）
+- [ ] 各容器 /home/node/CLAUDE.md（Summer 為 AGENTS.md）＝ engineer-baseline.md + 該 bot persona 組合結果；確認組合後含「共用基座 + 個性 + 署名表(該 bot 值) + 指路」且無重複、Claude Code 有載入。
 
 ## E. 端對端（沿用既有 K5 順序）
 - [ ] Morty 分析→人工閘門→@Rick→Rick openspec 開 PR→Morty+Summer change-review→clean→人類 merge，全程 mention 只在 handoff 行、無 bot 互 @ 迴圈。
