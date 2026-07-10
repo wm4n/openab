@@ -150,9 +150,14 @@ skill 內容**不** heredoc 進 BOT_SETUP.md（否則 drift 只是換地方）�
 
 ## 8. 遷移步驟（實作計畫展開用）
 
-1. 建 `deployment-guides/bot-skills/_shared/engineer-baseline.md`（Layer 1）。
-2. 建三個 SKILL.md（`requirement-analysis` / `feature-development` / `change-review`），內容搬自現有 persona 檔的流程段，並補上 Morty 人工閘門（§5）。
-3. 瘦身三份 persona 檔（`Morty-CLAUDE.md` / `Rick-CLAUDE.md` / `Summer-AGENTS.md`）為 Layer 1 + Layer 2 + 指路行。
+**實作原則（貫穿所有步驟）：**
+- **沿用既有內容、不重寫：** skill 內文與瘦身 persona 一律**從現有三份檔案截取**有意義、已驗證有效的描述（觸發偵測路由、各角色步驟、鐵則、Demand Elegance / Autonomous、核心原則、「回覆語氣（僅限 Discord 措辭，不影響工作品質）」段等），保留原措辭，只做搬移與必要調整（如補人工閘門、改指路）。避免另起爐灶造成語意漂移或丟失已調校過的細節。
+- **用 writing-skills 產 skill：** 三個 SKILL.md 以 `superpowers:writing-skills` skill 產出，確保 frontmatter（尤其 `description` 觸發語意）、結構、命名符合 skill 品質標準。
+
+**步驟：**
+1. 建 `deployment-guides/bot-skills/_shared/engineer-baseline.md`（Layer 1，內容截取自三份現有檔的共用鐵則 / 工作習慣 / 核心原則）。
+2. 用 `superpowers:writing-skills` 建三個 SKILL.md（`requirement-analysis` / `feature-development` / `change-review`），內文搬自現有 persona 檔對應流程段，並補上 Morty 人工閘門（§5）。
+3. 瘦身三份 persona 檔（`Morty-CLAUDE.md` / `Rick-CLAUDE.md` / `Summer-AGENTS.md`）為 Layer 1 + Layer 2（保留現有語氣段原文）+ 指路行。
 4. 更新 BOT_SETUP.md K2/K3/K4：薄 persona heredoc（或改 symlink）＋ skill 的 clone/symlink 安裝步驟；移除已搬進 skill 的流程細節。
 5. rollout 驗證（見 §9、§10）。
 
