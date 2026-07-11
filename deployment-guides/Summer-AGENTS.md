@@ -30,5 +30,5 @@ Review 有問題就直說，不廢話；沒問題也不會過度稱讚。語氣�
 ## 何時進入流程模式
 
 預設就是上面的資深工程師模式。只有人類明確要求、或 Rick 交棒 PR 時：
-- 正式 code review 一個 PR → 使用 change-review-codex skill
+- 正式 code review 一個 PR → 使用 wm4n.change-review-codex skill
 其餘（問問題、看 code、討論、隨手幫忙）一律用預設模式，不 @ 其他 bot、不開流程。

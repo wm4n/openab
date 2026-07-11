@@ -546,13 +546,13 @@ ls -la /home/node/.claude/skills/   # 三條 symlink（jira-fetch/superpowers.br
 # 3) pipeline skill：clone openab repo（或 sparse-checkout bot-skills/）後 symlink 進 ~/.claude/skills/
 #    <owner> 依 spec §7.2 rollout 決定（openab repo 來源）；同一份 checkout 同時供下方 CLAUDE.md 組合與此處 symlink 使用
 git clone https://github.com/<owner>/openab.git /home/node/github-repo/openab 2>/dev/null || git -C /home/node/github-repo/openab pull
-ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/requirement-analysis /home/node/.claude/skills/requirement-analysis
-ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review        /home/node/.claude/skills/change-review
-ls -la /home/node/.claude/skills/   # requirement-analysis / change-review symlink 都在
+ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/requirement-analysis /home/node/.claude/skills/wm4n.requirement-analysis
+ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review        /home/node/.claude/skills/wm4n.change-review
+ls -la /home/node/.claude/skills/   # wm4n.requirement-analysis / wm4n.change-review symlink 都在
 ```
 
 > ⚠️ **ACP skill 載入規則（實測）**：claude-agent-acp 只掃描 `~/.claude/skills/<name>/SKILL.md`；marketplace（`/plugins`）裝在 `~/.claude/plugins/cache/` 的**不會**被載入，所以裝完一定要 symlink 進 `~/.claude/skills/`。symlink 指 git checkout／plugin 目錄，**別指** cache 版本目錄（`.../1.0.0/`，更新就斷鏈）。
-> ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名；`requirement-analysis`/`change-review` 為 openab repo 內建 pipeline skill，維持原名。
+> ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名；pipeline skill 為 wm4n/openab repo 內建，**symlink 目錄名與 CLAUDE.md 引用名統一加 `wm4n.` prefix**（`wm4n.requirement-analysis`、`wm4n.change-review`），SKILL.md frontmatter `name` 維持裸名（同 superpowers 前例，ACP 以 symlink 目錄名為準）。
 
 **gh 雙帳號登入**（Console，user `node`；`GH_TOKEN_WM4N/CAC` 已由 Stack env 注入）：
 
@@ -574,8 +574,8 @@ cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Morty-CLAUDE.md" > /home/
 ```
 
 Morty persona 內指路的正式流程 skill：
-- 正式分析需求/JIRA/Issue/crash 並產 spec → `requirement-analysis` skill（內含四角色觸發偵測、`jira-fetch` 取票、`superpowers.brainstorming`/`superpowers.systematic-debugging` 產 spec 等細節）
-- 正式複審 PR → `change-review` skill（內含 `/review` 發佈 PR review comment、@Rick 回報結果等細節）
+- 正式分析需求/JIRA/Issue/crash 並產 spec → `wm4n.requirement-analysis` skill（內含四角色觸發偵測、`jira-fetch` 取票、`superpowers.brainstorming`/`superpowers.systematic-debugging` 產 spec 等細節）
+- 正式複審 PR → `wm4n.change-review` skill（內含 `/review` 發佈 PR review comment、@Rick 回報結果等細節）
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
 
 **驗證寫入**：
@@ -634,8 +634,8 @@ docker -c orbstack exec -u node openab-rick gh auth status   # wm4n + cac-willia
 docker -c orbstack exec -i -u node openab-rick sh -c '
   git clone https://github.com/<owner>/openab.git /home/node/github-repo/openab 2>/dev/null || git -C /home/node/github-repo/openab pull
   mkdir -p /home/node/.claude/skills
-  ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/feature-development /home/node/.claude/skills/feature-development
-  ls -la /home/node/.claude/skills/'   # feature-development symlink 在
+  ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/feature-development /home/node/.claude/skills/wm4n.feature-development
+  ls -la /home/node/.claude/skills/'   # wm4n.feature-development symlink 在
 ```
 
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）。
@@ -649,7 +649,7 @@ docker -c orbstack exec -i -u node openab-rick sh -c '
 ```
 
 Rick persona 內指路的正式流程 skill：
-- 收到 Morty 交棒的 branch+spec，或人類明確要求把 spec 正式開發成 PR → `feature-development` skill（內含 openspec propose→apply→archive、`gh pr create`、@Morty + @Summer handoff、reviewer 結果處理等細節，取代原本寫在 heredoc 裡的完整流程步驟）
+- 收到 Morty 交棒的 branch+spec，或人類明確要求把 spec 正式開發成 PR → `wm4n.feature-development` skill（內含 openspec propose→apply→archive、`gh pr create`、@Morty + @Summer handoff、reviewer 結果處理等細節，取代原本寫在 heredoc 裡的完整流程步驟）
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
 
 **驗證寫入**：
@@ -660,7 +660,7 @@ docker -c orbstack exec -u node openab-rick head -5 /home/node/CLAUDE.md
 
 ### K4. Summer(Codex@OrbStack Mac mini) — Code Review
 
-**角色：** 收到 Rick 的 PR → 用 `change-review-codex` skill 審查 → @Rick 回報結果。
+**角色：** 收到 Rick 的 PR → 用 `wm4n.change-review-codex` skill 審查 → @Rick 回報結果。
 
 **秘密檔**(`~/.openab-secret-summer.env`，chmod 600)：
 
@@ -722,19 +722,19 @@ docker -c orbstack exec -it -u node openab-summer codex
 
 進入 Codex session 後依序輸入 `/plugins` → `superpowers` → 選 Install Plugin，完成後 `/exit`。
 
-**pipeline skill 安裝**（`change-review-codex`；clone openab repo 後 symlink 進 codex-acp 掃描的 skill 目錄 `~/.codex/skills/`，同一份 checkout 也供下方 AGENTS.md 組合使用）：
+**pipeline skill 安裝**（`wm4n.change-review-codex`；clone openab repo 後 symlink 進 codex-acp 掃描的 skill 目錄 `~/.codex/skills/`，同一份 checkout 也供下方 AGENTS.md 組合使用）：
 
 ```bash
 docker -c orbstack exec -i -u node openab-summer sh -c '
   git clone https://github.com/<owner>/openab.git /home/node/github-repo/openab 2>/dev/null || git -C /home/node/github-repo/openab pull
   mkdir -p /home/node/.codex/skills
-  ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review-codex /home/node/.codex/skills/change-review-codex
-  ls -la /home/node/.codex/skills/'   # change-review-codex symlink 在
+  ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review-codex /home/node/.codex/skills/wm4n.change-review-codex
+  ls -la /home/node/.codex/skills/'   # wm4n.change-review-codex symlink 在
 ```
 
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）；rollout 時確認 Codex skill 掃描路徑是否真的是 `~/.codex/skills/`（尚未如 claude-agent-acp 那樣實測確認，見下方 ⚠️）。
 
-> ⚠️ **Codex skill 未完整驗證 + embed 退路**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `change-review-codex` skill；若找不到（Codex 不吃 filesystem skill），退回把 `change-review-codex` 的 SKILL.md 內文直接 embed 進 `Summer-AGENTS.md`（沿用既有「skill 精華 embed」前例——下方 AGENTS.md 步驟 1-3 即是把 review 流程精華寫進 persona 檔本文，而非只指名 skill），此時組合後的 AGENTS.md 仍＝ baseline + persona（含完整 review 流程），不依賴 filesystem skill 載入。
+> ⚠️ **Codex skill 未完整驗證 + embed 退路**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `wm4n.change-review-codex` skill；若找不到（Codex 不吃 filesystem skill），退回把 `change-review-codex` 的 SKILL.md 內文直接 embed 進 `Summer-AGENTS.md`（沿用既有「skill 精華 embed」前例——下方 AGENTS.md 步驟 1-3 即是把 review 流程精華寫進 persona 檔本文，而非只指名 skill），此時組合後的 AGENTS.md 仍＝ baseline + persona（含完整 review 流程），不依賴 filesystem skill 載入。
 
 **gh 雙帳號登入**（`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入；bwrap 內 gh 用 hosts.yml，不需 env token）：
 
@@ -785,9 +785,9 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 ```
 
 Summer persona 內指路的正式流程 skill：
-- 收到 Rick 交棒的 PR URL/新 push，或人類明確要求正式 code review → `change-review-codex` skill（內含觸發判斷、review 步驟、`<@ID>` 回報格式等細節，取代原本寫在 heredoc 裡的步驟 1-3）
+- 收到 Rick 交棒的 PR URL/新 push，或人類明確要求正式 code review → `wm4n.change-review-codex` skill（內含觸發判斷、review 步驟、`<@ID>` 回報格式等細節，取代原本寫在 heredoc 裡的步驟 1-3）
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
-- 若 Codex 吃不到 filesystem skill（見上方 ⚠️ embed 退路），改把 `change-review-codex` 的 SKILL.md 內文直接寫進 `Summer-AGENTS.md` 本文（取代「使用 change-review-codex skill」這一句指路），重新 cat 組合；此時 AGENTS.md 仍＝ baseline + persona，只是 persona 內多了完整 review 流程內文
+- 若 Codex 吃不到 filesystem skill（見上方 ⚠️ embed 退路），改把 `change-review-codex` 的 SKILL.md 內文直接寫進 `Summer-AGENTS.md` 本文（取代「使用 wm4n.change-review-codex skill」這一句指路），重新 cat 組合；此時 AGENTS.md 仍＝ baseline + persona，只是 persona 內多了完整 review 流程內文
 
 **驗證寫入**：
 

@@ -29,5 +29,5 @@
 ## 何時進入流程模式
 
 預設就是上面的資深工程師模式。只有人類明確要求、或 Morty 交棒 branch+spec 時：
-- 把 spec 正式開發成 PR → 使用 feature-development skill
+- 把 spec 正式開發成 PR → 使用 wm4n.feature-development skill
 其餘（問問題、看 code、討論、隨手幫忙）一律用預設模式，不 @ 其他 bot、不開流程。

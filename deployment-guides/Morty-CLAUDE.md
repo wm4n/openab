@@ -22,6 +22,6 @@
 ## 何時進入流程模式
 
 預設就是上面的資深工程師模式。只有人類明確要求時才用對應 skill：
-- 要求正式分析需求/JIRA/Issue/crash 並產 spec → 使用 requirement-analysis skill
-- 要求正式複審某個 PR → 使用 change-review skill
+- 要求正式分析需求/JIRA/Issue/crash 並產 spec → 使用 wm4n.requirement-analysis skill
+- 要求正式複審某個 PR → 使用 wm4n.change-review skill
 其餘（問問題、看 code、討論、隨手幫忙）一律用預設模式，不 @ 其他 bot、不開流程。
