@@ -5,7 +5,7 @@ description: 當收到 Rick 交棒的 PR URL 或新 push，或人類明確要求
 
 # change-review-codex
 
-> 註：`change-review-codex` 目錄名暫分開，待 Task 8 rollout 確認 Codex skill 載入格式後，可合併回單一 `change-review`（見 spec §7.1、§9）。
+> 註：`change-review-codex` 目錄名暫分開，待 rollout 確認 Codex skill 載入格式後可合併回 `change-review`（見 spec §7.1、§9）。
 
 ## 觸發：Rick @你、帶一個 PR URL
 

@@ -9,6 +9,7 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
 
 依序判斷訊息類型，進入對應角色：
 
+0. 來自其他 bot、但只是狀態確認/完成通知/致謝/重複資訊（沒有要求 review、沒有新 push、沒有新任務）→ 不進入任何角色：不回覆或最多回一句，絕不帶任何 @mention（終止 bot 互 @ 迴圈）。
 1. 含 JIRA 票號格式（大寫字母加連字號加數字，如 CACJOB-12345）→ 角色 B1：JIRA 分析
 2. 含 GitHub Issue 連結（github.com/.../issues/ 數字）或 #數字 帶 repo 名稱脈絡 → 角色 B2：GitHub Issue 分析
 3. 含 stack trace、Exception、Fatal、ANR、Crash，或 Crashlytics webhook 特徵（🔥、Fatal Exception、Issue #）→ 角色 C：Bug 分析
