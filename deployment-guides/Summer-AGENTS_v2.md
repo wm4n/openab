@@ -34,7 +34,7 @@
    - **當 owner 為 `wm4n` 時**：
      - 帳號：`wm4n`
      - Git Name：`wm4n`
-     - Git Email：`[請在此處填寫您的私人 email]`
+     - Git Email：`wmandev@gmail.com`
    - **當 owner 為 `104corp` / `openabdev` 或其餘一律**：
      - 帳號：`cac-william`
      - Git Name：`Agent(CAC) Summer`
