@@ -15,8 +15,8 @@ pub struct CustomWebhookPayload {
     /// Per-task thread ID for session isolation. Use `task_id` from the caller.
     pub thread_id: Option<String>,
     pub mention_id: Option<String>,
-    /// If set, gateway stores event_id → callback_url and POSTs the agent's
-    /// GatewayReply to this URL when a reply arrives for platform="custom".
+    /// Callback URL for reply delivery. Only accepted when CUSTOM_CALLBACK_ORIGIN
+    /// is configured and the URL starts with that trusted origin.
     pub callback_url: Option<String>,
 }
 
@@ -60,10 +60,30 @@ pub async fn webhook(
         mentions,
     );
 
-    // Register callback URL so the reply handler can deliver results.
+    // Validate and register callback URL against the configured trusted origin.
+    // Arbitrary URLs are rejected to prevent SSRF: the gateway must not POST
+    // agent output to caller-controlled, unvalidated targets.
     if let Some(url) = payload.callback_url.filter(|s| !s.is_empty()) {
-        let mut callbacks = state.custom_callbacks.lock().await;
-        callbacks.insert(event.event_id.clone(), url);
+        match &state.custom_callback_origin {
+            Some(origin) if url.starts_with(origin.as_str()) => {
+                let mut callbacks = state.custom_callbacks.lock().await;
+                callbacks.insert(event.event_id.clone(), url);
+            }
+            Some(origin) => {
+                warn!(
+                    callback_url = %url,
+                    allowed_origin = %origin,
+                    "custom webhook: callback_url rejected — not in allowed origin"
+                );
+                return axum::http::StatusCode::BAD_REQUEST;
+            }
+            None => {
+                warn!(
+                    callback_url = %url,
+                    "custom webhook: callback_url ignored — CUSTOM_CALLBACK_ORIGIN not configured"
+                );
+            }
+        }
     }
 
     let json = serde_json::to_string(&event).unwrap();

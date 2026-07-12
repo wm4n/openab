@@ -44,6 +44,9 @@ pub struct AppState {
     pub wecom: Option<adapters::wecom::WecomAdapter>,
     pub ws_token: Option<String>,
     pub custom_webhook_token: Option<String>,
+    /// Trusted URL origin prefix for callback_url validation (SSRF guard).
+    /// Requests supplying callback_url whose URL does not start with this origin are rejected.
+    pub custom_callback_origin: Option<String>,
     /// Maps GatewayEvent.event_id → callback URL for platform="custom" reply delivery.
     pub custom_callbacks: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     pub event_tx: broadcast::Sender<String>,
@@ -83,6 +86,7 @@ impl AppState {
             wecom: None,
             ws_token: None,
             custom_webhook_token: None,
+            custom_callback_origin: None,
             custom_callbacks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             event_tx,
             reply_token_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
@@ -191,6 +195,7 @@ impl AppState {
             wecom,
             ws_token,
             custom_webhook_token: std::env::var("CUSTOM_WEBHOOK_TOKEN").ok(),
+            custom_callback_origin: std::env::var("CUSTOM_CALLBACK_ORIGIN").ok(),
             custom_callbacks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             event_tx,
             reply_token_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
@@ -260,6 +265,12 @@ pub async fn serve(config: ServeConfig) -> anyhow::Result<()> {
         warn!("CUSTOM_WEBHOOK_TOKEN not set — /webhook/custom is unauthenticated (insecure in production)");
     } else {
         info!("custom webhook adapter enabled (Bearer token auth)");
+    }
+    let custom_callback_origin = std::env::var("CUSTOM_CALLBACK_ORIGIN").ok();
+    if custom_callback_origin.is_none() {
+        warn!("CUSTOM_CALLBACK_ORIGIN not set — callback_url in /webhook/custom will be ignored");
+    } else {
+        info!(origin = ?custom_callback_origin, "custom webhook callback origin configured");
     }
     let custom_callbacks: Arc<tokio::sync::Mutex<HashMap<String, String>>> =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
@@ -465,6 +476,7 @@ pub async fn serve(config: ServeConfig) -> anyhow::Result<()> {
         wecom,
         ws_token,
         custom_webhook_token,
+        custom_callback_origin,
         custom_callbacks,
         event_tx,
         reply_token_cache,
@@ -680,10 +692,18 @@ async fn handle_oab_connection(state: Arc<AppState>, socket: axum::extract::ws::
                                 if let Some(url) = callback_url {
                                     let body = serde_json::json!({"text": reply.content.text});
                                     match client.post(&url).json(&body).send().await {
-                                        Ok(_) => {
+                                        Ok(resp) if resp.status().is_success() => {
                                             state_for_recv.custom_callbacks.lock().await.remove(&reply.reply_to);
+                                            info!(event_id = %reply.reply_to, "custom callback delivered");
                                         }
-                                        Err(e) => warn!(event_id = %reply.reply_to, err = %e, "custom callback POST failed"),
+                                        Ok(resp) => {
+                                            warn!(
+                                                event_id = %reply.reply_to,
+                                                status = %resp.status(),
+                                                "custom callback POST returned non-2xx — keeping entry for retry"
+                                            );
+                                        }
+                                        Err(e) => warn!(event_id = %reply.reply_to, err = %e, "custom callback POST failed — keeping entry for retry"),
                                     }
                                 } else {
                                     warn!(reply_to = %reply.reply_to, "custom reply: no callback URL registered (fire-and-forget mode)");
