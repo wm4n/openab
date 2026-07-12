@@ -40,6 +40,7 @@ pub struct AppState {
     #[cfg(feature = "wecom")]
     pub wecom: Option<adapters::wecom::WecomAdapter>,
     pub ws_token: Option<String>,
+    pub custom_webhook_token: Option<String>,
     pub event_tx: broadcast::Sender<String>,
     pub reply_token_cache: ReplyTokenCache,
     pub line_webhook_semaphore: Arc<Semaphore>,

@@ -1,3 +1,4 @@
+pub mod custom;
 #[cfg(feature = "telegram")]
 pub mod telegram;
 #[cfg(feature = "line")]

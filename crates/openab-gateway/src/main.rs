@@ -184,12 +184,20 @@ async fn main() -> Result<()> {
         warn!("GATEWAY_WS_TOKEN not set — WebSocket connections are NOT authenticated (insecure)");
     }
 
+    let custom_webhook_token = std::env::var("CUSTOM_WEBHOOK_TOKEN").ok();
+    if custom_webhook_token.is_none() {
+        warn!("CUSTOM_WEBHOOK_TOKEN not set — /webhook/custom is unauthenticated (insecure in production)");
+    } else {
+        info!("custom webhook adapter enabled (Bearer token auth)");
+    }
+
     let (event_tx, _) = broadcast::channel::<String>(256);
     let reply_token_cache: ReplyTokenCache = Arc::new(std::sync::Mutex::new(HashMap::new()));
 
     let mut app = Router::new()
         .route("/ws", get(ws_handler))
-        .route("/health", get(health));
+        .route("/health", get(health))
+        .route("/webhook/custom", post(adapters::custom::webhook));
 
     // Telegram adapter
     #[cfg(feature = "telegram")]
@@ -376,6 +384,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "wecom")]
         wecom,
         ws_token,
+        custom_webhook_token,
         event_tx,
         reply_token_cache,
         line_webhook_semaphore: Arc::new(Semaphore::new(LINE_WEBHOOK_CONCURRENCY_MAX)),
