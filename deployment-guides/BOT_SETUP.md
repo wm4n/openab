@@ -36,6 +36,7 @@
   - [Part I — Portainer(另一台,UI-only)部署](#part-i--portainer另一台ui-only部署)
   - [Part J — Codex 變體(與 Claude 並存)](#part-j--codex-變體與-claude-並存)
   - [Part K — 三 Bot 接力 Pipeline(Morty/Rick/Summer)](#part-k--三-bot-接力-pipelinemortricksummer)
+  - [Part L — 定時排程（Cron / Usercron）](#part-l--定時排程cron--usercron)
   - [維運](#維運)
   - [安全須知(務必讀)](#安全須知務必讀)
   - [疑難排解](#疑難排解)
@@ -805,6 +806,95 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md   # �
 4. Morty 和 Summer 各自 review → @Rick 回報
 5. Rick 通知人類：「兩位 reviewer 都 clean，可以 merge」
 6. 人類手動 merge
+
+---
+
+## Part L — 定時排程（Cron / Usercron）
+
+> openab **內建**排程，不需外部 cron。到點時把一句 prompt 當成「使用者輸入」丟給 agent，agent 跑完**回覆到指定 channel/thread**（＝定時執行任務 + 回報狀態）。權威文件見 repo 內 `docs/cronjob.md`、`docs/slash-commands.md`。
+
+三種機制：
+
+| 機制                            | 用途                     | 重複      | 誰管理排程       | 改了要重啟?                   |
+| ------------------------------- | ------------------------ | --------- | ---------------- | ----------------------------- |
+| `[[cron.jobs]]`（config.toml）  | 定時丟 prompt 給 agent   | ✅        | 手改 config      | 要（config 掛載/redeploy）    |
+| **Usercron**（`cronjob.toml`）  | 同上，但**熱重載**       | ✅        | **agent 可自寫** | 不用（每分鐘偵測 mtime）      |
+| `/remind`（slash command）      | 延遲後 @ 提醒某人        | ❌ 一次性 | 使用者           | —                             |
+
+> 「定時執行任務並回報」用 **cron / usercron**；`/remind` 只到點 tag 人、**不會**叫 agent 做事。
+
+### L1. 啟用 usercron（建議：熱重載 + agent 可自管）
+
+在該 bot 的 config.toml 加一段（預設**關閉**，兩欄都要填才啟用）：
+
+```toml
+[cron]
+usercron_enabled = true
+usercron_path    = "cronjob.toml"   # 相對 $HOME/.openab/ → /home/node/.openab/cronjob.toml
+```
+
+- `cronjob.toml` 落在 `/home/node/.openab/`（持久化 volume，restart 不掉）。
+- 加 `[cron]` 這步是改 config.toml → 要重啟一次：**Mac mini** 改 host config 後 `docker -c orbstack restart <容器>`；**Portainer** 改 Console/Stack config 後 redeploy。**之後改 `cronjob.toml` 本身不用 restart。**
+
+### L2. 寫一個排程（`/home/node/.openab/cronjob.toml`）
+
+容器內、user `node`、heredoc 寫入（**勿 `docker cp`**，會變 root 擁有）：
+
+```bash
+docker -c orbstack exec -i -u node openab-rick sh -c \
+  'mkdir -p /home/node/.openab && cat > /home/node/.openab/cronjob.toml' <<'EOF'
+[[jobs]]
+schedule    = "0 9 * * 1-5"          # 5 欄位 POSIX cron（分 時 日 月 週）
+channel     = "你的_channel_id"
+message     = "總結昨天 merged 的 PR 並回報"
+sender_name = "DailyOps"
+timezone    = "Asia/Taipei"          # ⚠️ 預設 UTC，不設會差 8 小時
+EOF
+```
+
+1 分鐘內生效，log 出現 `usercron file changed, reloading`。fire 時 agent 看到的是 `🕐 [DailyOps]: 總結昨天 merged 的 PR 並回報`。
+
+### L3. agent 自管排程（手機也能排）
+
+`cronjob.toml` 是純檔案，agent 有 Bash/檔案工具就能自己寫。直接對 bot 說：
+
+```
+你：幫我設一個每天早上 9 點總結 PR 的排程
+bot：✅ 已寫入 cronjob.toml，1 分鐘內生效
+```
+
+### L4. 跑到目標達成就自停（goal-driven，適合催修 test/bug）
+
+usercron 專屬 `disable_on_success`：每次 fire 前先跑檢查指令，**exit 0 且輸出含指定字串** → 回報 `✅ Goal achieved`、把該 job 寫回 `enabled = false`、跳過該次 prompt；否則照送 `message` 讓 agent 繼續。
+
+```toml
+[[jobs]]
+id = "fix-unit-tests"                        # ⚠️ writeback 需要 id
+schedule = "*/10 * * * *"
+channel  = "你的_channel_id"
+message  = "Unit tests 還是紅的，繼續修並回報進度"
+disable_on_success = "npm test && echo OPENAB_GOAL_SUCCESS"
+disable_on_success_match = "OPENAB_GOAL_SUCCESS"
+disable_on_success_working_dir = "/home/node/<repo>"
+```
+
+> `disable_on_success` 只支援 usercron `[[jobs]]`，baseline `[[cron.jobs]]` 不支援。
+
+### L5. 注意事項
+
+- **長任務**：官方建議單次 >5 分鐘改用外部排程（K8s CronJob）；openspec 開發那種別排太密。
+- **overlap 保護**：上一輪還在跑就跳過這輪（log：`skipping cronjob, previous execution still running`）。
+- **每顆 bot 各自 config**：Rick/Summer/Morty 各排各的，cron 只 fire 進你設的 channel；跨 bot 接力仍靠 @mention。
+- **bot 要在該 channel**：`channel` 指到的頻道要先邀 bot 進去，否則 `Channel not found`。
+- **cron 週期限制**：day-of-week 別混用數字與名稱（`1,Mon` ❌）、別用繞回範圍（`5-2` ❌）。完整疑難排解見 `docs/cronjob.md`。
+
+### L6. 三顆 bot 的啟用位置
+
+| bot                       | 改 config 的位置                                                     | 寫 `cronjob.toml`                                        |
+| ------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Rick**（OrbStack）      | 見 [K3](#k3-rickclaudeorbstack-mac-mini--openspec-開發) 註記（config 位置未定案）→ 改後 `restart` | `docker -c orbstack exec -i -u node openab-rick ...`     |
+| **Summer**（OrbStack）    | host `~/openab-summer/config.toml`（掛 `/etc/openab:ro`）→ `restart` | `docker -c orbstack exec -i -u node openab-summer ...`   |
+| **Morty**（Portainer）    | Console 改 `/home/node/config.toml`（或 Stack）→ redeploy            | Console heredoc 寫 `/home/node/.openab/cronjob.toml`     |
 
 ---
 
