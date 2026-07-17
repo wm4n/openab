@@ -314,7 +314,7 @@ owner 分流、帳號選擇與該帳號的 repo-local Git 署名，由已安裝 
    ls -la /home/node/.config/gh/hosts.yml      # 檔案在了
    ```
 4. **改 config**:`[agent].inherit_env` 移除 `GH_TOKEN`(**Morty 保留 `JIRA_*`**)→ 重啟(config 掛載)或重建。
-5. **寫入更新後的 context 檔**(heredoc 或 baseline+persona cat 組合,含「選帳號」開場;見 [Part K](#part-k--三-bot-接力-pipelinemortricksummer))。
+5. **寫入更新後的完整 v2 context 檔**（含「選帳號」開場；見 [Part K](#part-k--三-bot-接力-pipelinemortricksummer)）。
 6. **煙霧測試**:`gh auth switch --user wm4n` → clone+push 一個個人 repo(署名=wm4n、無 403);再 `gh auth switch --user cac-william` → 對一個公司 repo 同樣測。
 7. **端對端**:在 #dev-bot 各跑一條個人 GitHub Issue 與一條公司任務,確認兩邊 PR 的 commit 署名正確、無 403。
 
@@ -559,12 +559,11 @@ gh auth status   # 要看到 wm4n 與 cac-william 兩個 Logged in
 
 > Portainer Stack 的 Environment variables 要把 `GH_TOKEN` 改成 `GH_TOKEN_WM4N`、`GH_TOKEN_CAC` 兩筆。
 
-**CLAUDE.md**（方案 B：部署時由 baseline + persona 兩檔組合，非單一 heredoc）＝ `engineer-baseline.md`（Layer 1 共用工程師基座，Part K 導言的雙模式行為即出自此檔）＋ 瘦身後 Morty persona（`Morty-CLAUDE.md`：個性 + 署名表 + 何時進入流程模式指路）：
+**CLAUDE.md**：直接部署完整的 Morty v2 context 檔 `Morty-CLAUDE_v2.md`。
 
 ```bash
-# CLAUDE.md = baseline + persona（方案 B：部署時組合，repo 內單一來源）
 CK=/home/node/github-repo/openab/deployment-guides
-cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Morty-CLAUDE.md" > /home/node/CLAUDE.md
+cp "$CK/Morty-CLAUDE_v2.md" /home/node/CLAUDE.md
 ```
 
 Morty persona 內指路的正式流程 skill：
@@ -575,7 +574,7 @@ Morty persona 內指路的正式流程 skill：
 **驗證寫入**：
 
 ```bash
-head -5 /home/node/CLAUDE.md   # 應看到 engineer-baseline.md 開頭（預設模式：資深工程師）
+head -5 /home/node/CLAUDE.md   # 應看到「Agent Morty 核心運行指南」
 ```
 
 **重啟後驗證** `env | grep JIRA` 看到三個 JIRA 變數有值。
@@ -635,12 +634,12 @@ docker -c orbstack exec -i -u node openab-rick sh -c '
 
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）。
 
-**CLAUDE.md**（方案 B：部署時由 baseline + persona 兩檔組合，非單一 heredoc）＝ `engineer-baseline.md`（Layer 1 共用工程師基座）＋ 瘦身後 Rick persona（`Rick-CLAUDE.md`：個性 + 署名表 + 何時進入流程模式指路）：
+**CLAUDE.md**：直接部署完整的 Rick v2 context 檔 `Rick-CLAUDE_v2.md`。
 
 ```bash
 docker -c orbstack exec -i -u node openab-rick sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
-  cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Rick-CLAUDE.md" > /home/node/CLAUDE.md'
+  cp "$CK/Rick-CLAUDE_v2.md" /home/node/CLAUDE.md'
 ```
 
 Rick persona 內指路的正式流程 skill：
@@ -730,7 +729,7 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）；rollout 時確認 Codex skill 掃描路徑是否真的是 `~/.codex/skills/`（尚未如 claude-agent-acp 那樣實測確認，見下方 ⚠️）。
 
-> ⚠️ **Codex skill 未完整驗證 + embed 退路**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `wm4n.change-review-codex` skill；若找不到（Codex 不吃 filesystem skill），退回把 `change-review-codex` 的 SKILL.md 內文直接 embed 進 `Summer-AGENTS.md`（沿用既有「skill 精華 embed」前例——下方 AGENTS.md 步驟 1-3 即是把 review 流程精華寫進 persona 檔本文，而非只指名 skill），此時組合後的 AGENTS.md 仍＝ baseline + persona（含完整 review 流程），不依賴 filesystem skill 載入。
+> ⚠️ **Codex skill 未完整驗證 + embed 退路**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `wm4n.change-review-codex` skill；若找不到（Codex 不吃 filesystem skill），退回把 `change-review-codex` 的 SKILL.md 內文直接 embed 進 `Summer-AGENTS_v2.md`，再重新部署該完整 v2 檔，不依賴 filesystem skill 載入。
 
 **gh 雙帳號登入**（`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入；bwrap 內 gh 用 hosts.yml，不需 env token）：
 
@@ -772,23 +771,23 @@ EOF
 > - `approvals_reviewer = "auto_review"`：bot 無人值守時自動核准工具呼叫；若設 `"user"` 會讓 tool call 掛住 30 分鐘。
 > - `multi_agent = true`：啟用 subagent dispatch（`spawn_agent`/`wait_agent`）。
 
-**AGENTS.md**（方案 B：部署時由 baseline + persona 兩檔組合，非單一 heredoc）＝ `engineer-baseline.md`（Layer 1 共用工程師基座）＋ 瘦身後 Summer persona（`Summer-AGENTS.md`：個性 + 署名表 + 何時進入流程模式指路）：
+**AGENTS.md**：直接部署完整的 Summer v2 context 檔 `Summer-AGENTS_v2.md`。
 
 ```bash
 docker -c orbstack exec -i -u node openab-summer sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
-  cat "$CK/bot-skills/_shared/engineer-baseline.md" "$CK/Summer-AGENTS.md" > /home/node/AGENTS.md'
+  cp "$CK/Summer-AGENTS_v2.md" /home/node/AGENTS.md'
 ```
 
 Summer persona 內指路的正式流程 skill：
 - 收到 Rick 交棒的 PR URL/新 push，或人類明確要求正式 code review → `wm4n.change-review-codex` skill（內含觸發判斷、review 步驟、`<@ID>` 回報格式等細節，取代原本寫在 heredoc 裡的步驟 1-3）
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
-- 若 Codex 吃不到 filesystem skill（見上方 ⚠️ embed 退路），改把 `change-review-codex` 的 SKILL.md 內文直接寫進 `Summer-AGENTS.md` 本文（取代「使用 wm4n.change-review-codex skill」這一句指路），重新 cat 組合；此時 AGENTS.md 仍＝ baseline + persona，只是 persona 內多了完整 review 流程內文
+- 若 Codex 吃不到 filesystem skill（見上方 ⚠️ embed 退路），改把 `change-review-codex` 的 SKILL.md 內文直接寫進 `Summer-AGENTS_v2.md` 本文（取代「使用 wm4n.change-review-codex skill」這一句指路），再重新部署該完整 v2 檔
 
 **驗證寫入**：
 
 ```bash
-docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md   # 應看到 engineer-baseline.md 開頭
+docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md   # 應看到「Agent Summer 核心運行指南」
 ```
 
 > ⚠️ 注意：Rick 在 openspec 流程中可能多次 @Summer，每次 @mention 都會觸發一個新 session。若 session 累積過多導致 Codex 初始化慢（超過 1800s hard timeout），可讓 Rick 只在**推 PR 後**才 @Summer 一次。
