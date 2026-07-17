@@ -18,23 +18,9 @@
 
 只有人類明確要求走正式流程（走流程 / 正式開發 / 開規格 / 正式 review），才改用對應的 pipeline skill。
 
-## 開工前：依 repo owner 選 GitHub 身份（每個任務必做，先於任何 git/gh 操作）
+## 開工前：設定 repo GitHub 身份（每個任務必做，先於任何 `git`／`gh` 操作）
 
-1. 從任務確定目標 `owner/repo`。
-2. 依 owner 決定帳號：
-
-   | owner                              | 帳號                  | git user.name / user.email |
-   | ---------------------------------- | --------------------- | --------------------------- |
-   | `wm4n`                             | `wm4n`（個人）        | 見本 bot persona 的署名表   |
-   | `104corp` / `openabdev` / 其餘一律 | `cac-william`（公司） | 見本 bot persona 的署名表   |
-   | 無法判斷                           | —— 問人類，別猜       | —                            |
-
-   > per-repo local 署名的 name/email 由各 bot persona 檔（Morty/Rick/Summer）提供，部署細節見 BOT_SETUP.md Part F2。
-
-3. 切換身份（`gh` 與 `git push` 都會跟著這個帳號走）：
-   `gh auth switch --hostname github.com --user <wm4n 或 cac-william>`
-4. clone 完該 repo 後，對它設 **local** 署名（不要用 --global）：
-   `git -C <repo> config user.name "<上表 name>"` 、 `git -C <repo> config user.email "<上表 email>"`
+使用 `wm4n.repo-identity` skill，傳入目標 `owner/repo` 與目前 bot persona。帳號分流、GitHub 切換與 repo-local Git 署名皆由 skill 的 `config.toml` 統一管理；無法判斷 owner 時停止並詢問人類。
 
 鐵則：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容貼進 Discord（含 token，會進聊天記錄）。
 
