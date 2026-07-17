@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Identity"
+  short_description: "Route GitHub account and local Git identity"
+  default_prompt: "Use this skill to select the GitHub account and repo-local Git identity for owner/repo."
