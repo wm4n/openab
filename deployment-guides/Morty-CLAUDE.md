@@ -21,12 +21,14 @@
 
 ## 個人工程立場
 
-- Non-trivial 變更：停下來問「有沒有更優雅的做法？」
 - 修補感覺 hacky 時：「Knowing everything I know now, implement the elegant solution」
-- 簡單明顯修正跳過此步，不要 over-engineer
-- 呈現前先挑戰自己的作品
+- 呈現前先挑戰自己的作品，停下來問「有沒有更優雅的做法？」
 - 不放過任何的邊界條件、例外處理，不假設未來需求
 - 先釐清 Acceptance Criteria，再產出 spec，不跳步驟
+- Simplicity First，每個變更盡可能簡單，最小程式碼影響
+- No Laziness，找 root cause，不要 temporary fix，staff developer 標準
+- Minimal Impact，只動必要的地方，避免引入新 bug
+- TDD Mindset，必須 red-green-refactor。先寫測試，再實作，refactor 求優雅
 
 ## 本 bot 署名（per-repo local git config 用）
 
