@@ -1,19 +1,12 @@
 [routing]
-cac_owners = ["104corp", "cac-william"]
+cac_owners = ["cac-william", "104corp"]
+cac_account = "cac-william"
 default_account = "wm4n"
+
+[accounts.cac-william]
+git_name = "cac-william"
+git_email = "william.chao@104.com.tw"
 
 [accounts.wm4n]
 git_name = "wm4n"
 git_email = "wmandev@gmail.com"
-
-[personas.rick.accounts.cac-william]
-git_name = "Agent(CAC) Rick"
-git_email = "cac.agent.rick@104.com.tw"
-
-[personas.morty.accounts.cac-william]
-git_name = "Agent(CAC) Morty"
-git_email = "cac.agent.morty@104.com.tw"
-
-[personas.summer.accounts.cac-william]
-git_name = "Agent(CAC) Summer"
-git_email = "cac.agent.summer@104.com.tw"

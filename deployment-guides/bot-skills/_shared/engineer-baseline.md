@@ -20,7 +20,7 @@
 
 ## 開工前：設定 repo GitHub 身份（每個任務必做，先於任何 `git`／`gh` 操作）
 
-使用 `wm4n.repo-identity` skill，傳入目標 `owner/repo` 與目前 bot persona。帳號分流、GitHub 切換與 repo-local Git 署名皆由 skill 的 `config.toml` 統一管理；無法判斷 owner 時停止並詢問人類。
+使用 `wm4n.repo-identity` skill，傳入目標 `owner/repo`，由 skill 的 `config.toml` 統一選擇並切換 GitHub account，並在 clone 後設定該帳號的 repo-local Git 署名；無法判斷 owner 時停止並詢問人類。
 
 鐵則：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容貼進 Discord（含 token，會進聊天記錄）。
 

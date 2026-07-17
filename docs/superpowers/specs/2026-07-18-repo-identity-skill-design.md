@@ -12,8 +12,8 @@ deployment-guides/bot-skills/repo-identity/
 └── config.toml
 ```
 
-- `SKILL.md` defines the mandatory preflight workflow: determine `owner/repo`, read configuration, choose the account, run `gh auth switch`, and set local Git identity after cloning.
-- `config.toml` is the sole source for owner mapping and account/persona identity values. It contains no tokens or other secrets.
+- `SKILL.md` defines the mandatory preflight workflow: determine `owner/repo`, read configuration, choose the account, run `gh auth switch`, and set repo-local Git identity from that account.
+- `config.toml` is the sole source for owner mapping and account values, including each account's Git name/email. It contains no tokens or persona data.
 - The skill is installed under the deployment-facing name `wm4n.repo-identity` for Claude and Codex agents.
 
 ## Configuration Model
@@ -22,8 +22,7 @@ The configuration declares:
 
 - an explicit `cac-william` owner allowlist: `104corp` and `cac-william`;
 - `wm4n` as the fallback account for every other resolved owner;
-- the shared `wm4n` Git name and email;
-- the `cac-william` Git name and email for each persona: Rick, Morty, and Summer.
+- `cac-william` as the account for allowlisted owners and `wm4n` as the fallback account, with Git name/email matching each account.
 
 An unresolved owner remains a hard stop: the agent asks a human rather than selecting a default.
 
@@ -32,7 +31,7 @@ An unresolved owner remains a hard stop: the agent asks a human rather than sele
 1. Before any `git` or `gh` command for a software-development task, the bot invokes `wm4n.repo-identity`.
 2. The skill determines the target owner from the task; if unavailable, it stops and asks for it.
 3. The skill reads `config.toml`, selects the GitHub account, and switches it with `gh auth switch`.
-4. After cloning, the skill writes `user.name` and `user.email` with repo-local Git config only.
+4. After cloning, the skill writes the selected account's `user.name` and `user.email` with repo-local Git config only.
 5. The agent continues its regular or pipeline workflow.
 
 ## Document Migration

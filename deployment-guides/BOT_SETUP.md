@@ -291,7 +291,7 @@ docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 wm4n 
 
 一個 bot 服務兩個 GitHub 身份，由每個任務開工前的 `wm4n.repo-identity` skill 統一處理。三顆 bot 的 context 檔（CLAUDE.md／AGENTS.md）都必須在任何 `git`／`gh` 操作前呼叫它（見 Part K）。
 
-owner 分流、帳號選擇與 persona 的 repo-local Git 署名，全部由已安裝 skill 的版本化 `deployment-guides/bot-skills/repo-identity/config.toml` 管理。該檔不存 token；無法判斷 owner 時 skill 會停止並詢問人類。
+owner 分流、帳號選擇與該帳號的 repo-local Git 署名，由已安裝 skill 的版本化 `deployment-guides/bot-skills/repo-identity/config.toml` 管理。該設定檔不存 token；無法判斷 owner 時 skill 會停止並詢問人類。
 
 > **併發取捨:** `gh auth switch` 是整個容器全域。同一顆 bot 若同時跑兩個不同帳號的 thread(pool 併發)會互搶身份。單人主導、一次一個 feature 幾乎不會遇到。
 >
