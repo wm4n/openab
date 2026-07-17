@@ -289,17 +289,9 @@ docker -c orbstack exec -u node openab-claude gh auth status   # 要看到 wm4n 
 
 ## Part F2 — 多帳號身份切換
 
-一個 bot 服務兩個 GitHub 身份,靠「每個任務開工前依 repo owner 選帳號」。三顆 bot 的 context 檔(CLAUDE.md/AGENTS.md)都放同一段「選帳號」開場(見 Part K)。
+一個 bot 服務兩個 GitHub 身份，由每個任務開工前的 `wm4n.repo-identity` skill 統一處理。三顆 bot 的 context 檔（CLAUDE.md／AGENTS.md）都必須在任何 `git`／`gh` 操作前呼叫它（見 Part K）。
 
-**Owner → 帳號對照:**
-
-| owner | 帳號 | git user.name | git user.email |
-| --- | --- | --- | --- |
-| `wm4n` | `wm4n`(個人) | `wm4n` | `<你的 wm4n GitHub 個人 email>` |
-| `104corp`、`openabdev`、其餘一律 | `cac-william`(公司) | 依 bot:`Agent(CAC) Rick/Morty/Summer` | `cac.agent.{rick,morty,summer}@104.com.tw` |
-| 無法判斷 | 問人類,別猜 | | |
-
-**每個任務開工步驟:** 判斷 owner → `gh auth switch --hostname github.com --user <帳號>` → clone 後 `git -C <repo> config user.name/email`(local)。切換後 `gh` 與 `git push` 都用該帳號。
+owner 分流、帳號選擇與 persona 的 repo-local Git 署名，全部由已安裝 skill 的版本化 `deployment-guides/bot-skills/repo-identity/config.toml` 管理。該檔不存 token；無法判斷 owner 時 skill 會停止並詢問人類。
 
 > **併發取捨:** `gh auth switch` 是整個容器全域。同一顆 bot 若同時跑兩個不同帳號的 thread(pool 併發)會互搶身份。單人主導、一次一個 feature 幾乎不會遇到。
 >
@@ -549,11 +541,12 @@ ls -la /home/node/.claude/skills/   # 三條 symlink（jira-fetch/superpowers.br
 git clone https://github.com/<owner>/openab.git /home/node/github-repo/openab 2>/dev/null || git -C /home/node/github-repo/openab pull
 ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/requirement-analysis /home/node/.claude/skills/wm4n.requirement-analysis
 ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review        /home/node/.claude/skills/wm4n.change-review
-ls -la /home/node/.claude/skills/   # wm4n.requirement-analysis / wm4n.change-review symlink 都在
+ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/repo-identity        /home/node/.claude/skills/wm4n.repo-identity
+ls -la /home/node/.claude/skills/   # wm4n.requirement-analysis / wm4n.change-review / wm4n.repo-identity symlink 都在
 ```
 
 > ⚠️ **ACP skill 載入規則（實測）**：claude-agent-acp 只掃描 `~/.claude/skills/<name>/SKILL.md`；marketplace（`/plugins`）裝在 `~/.claude/plugins/cache/` 的**不會**被載入，所以裝完一定要 symlink 進 `~/.claude/skills/`。symlink 指 git checkout／plugin 目錄，**別指** cache 版本目錄（`.../1.0.0/`，更新就斷鏈）。
-> ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名；pipeline skill 為 wm4n/openab repo 內建，**symlink 目錄名與 CLAUDE.md 引用名統一加 `wm4n.` prefix**（`wm4n.requirement-analysis`、`wm4n.change-review`），SKILL.md frontmatter `name` 維持裸名（同 superpowers 前例，ACP 以 symlink 目錄名為準）。
+> ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名；wm4n/openab repo 內建 skill 的 symlink 目錄名與 context 檔引用名統一加 `wm4n.` prefix（`wm4n.requirement-analysis`、`wm4n.change-review`、`wm4n.repo-identity`），SKILL.md frontmatter `name` 維持裸名（同 superpowers 前例，ACP 以 symlink 目錄名為準）。
 
 **gh 雙帳號登入**（Console，user `node`；`GH_TOKEN_WM4N/CAC` 已由 Stack env 注入）：
 
@@ -636,7 +629,8 @@ docker -c orbstack exec -i -u node openab-rick sh -c '
   git clone https://github.com/<owner>/openab.git /home/node/github-repo/openab 2>/dev/null || git -C /home/node/github-repo/openab pull
   mkdir -p /home/node/.claude/skills
   ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/feature-development /home/node/.claude/skills/wm4n.feature-development
-  ls -la /home/node/.claude/skills/'   # wm4n.feature-development symlink 在
+  ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/repo-identity        /home/node/.claude/skills/wm4n.repo-identity
+  ls -la /home/node/.claude/skills/'   # wm4n.feature-development / wm4n.repo-identity symlink 都在
 ```
 
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）。
@@ -730,7 +724,8 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
   git clone https://github.com/<owner>/openab.git /home/node/github-repo/openab 2>/dev/null || git -C /home/node/github-repo/openab pull
   mkdir -p /home/node/.codex/skills
   ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/change-review-codex /home/node/.codex/skills/wm4n.change-review-codex
-  ls -la /home/node/.codex/skills/'   # wm4n.change-review-codex symlink 在
+  ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/repo-identity          /home/node/.codex/skills/wm4n.repo-identity
+  ls -la /home/node/.codex/skills/'   # wm4n.change-review-codex / wm4n.repo-identity symlink 都在
 ```
 
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）；rollout 時確認 Codex skill 掃描路徑是否真的是 `~/.codex/skills/`（尚未如 claude-agent-acp 那樣實測確認，見下方 ⚠️）。
