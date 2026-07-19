@@ -37,6 +37,7 @@
   - [Part J — Codex 變體(與 Claude 並存)](#part-j--codex-變體與-claude-並存)
   - [Part K — 三 Bot 接力 Pipeline(Morty/Rick/Summer)](#part-k--三-bot-接力-pipelinemortricksummer)
   - [Part L — 定時排程（Cron / Usercron）](#part-l--定時排程cron--usercron)
+  - [Part M — 角色觸發（個人別名 / 團隊 mention）](#part-m--角色觸發個人別名--團隊-mention)
   - [維運](#維運)
   - [安全須知(務必讀)](#安全須知務必讀)
   - [疑難排解](#疑難排解)
@@ -889,6 +890,50 @@ disable_on_success_working_dir = "/home/node/<repo>"
 | **Rick**（OrbStack）      | 見 [K3](#k3-rickclaudeorbstack-mac-mini--openspec-開發) 註記（config 位置未定案）→ 改後 `restart` | `docker -c orbstack exec -i -u node openab-rick ...`     |
 | **Summer**（OrbStack）    | host `~/openab-summer/config.toml`（掛 `/etc/openab:ro`）→ `restart` | `docker -c orbstack exec -i -u node openab-summer ...`   |
 | **Morty**（Portainer）    | Console 改 `/home/node/config.toml`（或 Stack）→ redeploy            | Console heredoc 寫 `/home/node/.openab/cronjob.toml`     |
+
+---
+
+## Part M — 角色觸發（個人別名 / 團隊 mention）
+
+> openab 的 `allowed_role_ids` 讓「@某個 Discord 角色」等同「@ 這隻 bot」。用來做**個人別名**（`@Developer` 也能叫動 Rick）或**團隊暱稱**（`@Team Alpha` 一次叫動整隊）。
+>
+> 觸發原理（`crates/openab-core/src/discord.rs:455`）：openab 比對「訊息 mention 到的角色 ID」對不對得上該 bot config 的 `allowed_role_ids`。所以 **bot 不需要真的被指派該角色**——只要 (a) 角色存在且**可被 @**、(b) 角色 ID 有寫進該 bot 的 `allowed_role_ids`。被 mention 的角色文字在丟給 agent 前會被剝掉，prompt 乾淨。
+>
+> ⚠️ openab **只認真正的 @mention**（user ID 或角色 ID），**不會**因為訊息裡出現某個名字的「文字」就觸發。純文字別名沒有這種功能。
+
+### M1. 個人別名（`@Developer` → 只叫 Rick）
+
+1. Discord 建角色 `Developer`，開「**允許任何人 @提及此角色**」（否則 @ 不出來）。
+2. 取角色 ID（開發者模式 → 右鍵角色 → 複製角色 ID）。
+3. 寫進 **Rick** 的 config.toml：
+   ```toml
+   [discord]
+   allowed_role_ids = ["Developer_角色_ID"]
+   ```
+4. Rick restart / redeploy。
+
+結果：`@Developer` 觸發 Rick，`@Rick` 本人照樣有效。
+
+### M2. 團隊暱稱（`@Team Alpha` → 叫動整隊）
+
+1. Discord 建角色 `Team Alpha`，同樣開「允許任何人 @提及」。
+2. 取角色 ID。
+3. **同一個角色 ID 寫進「每一隻」要入隊的 bot** 的 config.toml（`allowed_role_ids` 是清單，可與個人別名並列）：
+   ```toml
+   [discord]
+   allowed_role_ids = ["TeamAlpha_角色_ID", "Developer_角色_ID"]   # Rick：團隊 + 個人別名
+   ```
+4. 每隻入隊的 bot 各自 restart / redeploy。
+
+結果：`@Team Alpha` → 每隻入隊 bot **各開自己的 session、各回一則**（＝同時派工給整隊）。想讓誰入隊，就把角色 ID 加進誰的 config；不想要就別加。
+
+### M3. 注意事項
+
+- **角色必須可被 @**：Discord 角色設定要允許 @提及，否則使用者打不出這個 mention。
+- **不用把角色指派給 bot**：openab 比對的是「被 mention 的角色 ID」，與 bot 有沒有這個角色無關。
+- **別讓 bot 自己去 mention 團隊角色**：搭配 `allow_bot_messages = "mentions"/"all"` 會造成 bot 互相觸發的迴圈；人類手動 @Team Alpha 沒問題。
+- **改 config 要重讀**：`allowed_role_ids` 在 config.toml，改完要 restart / redeploy（各 bot 的 config 位置見 [Part L L6](#l6-三顆-bot-的啟用位置) / Part K）。
+- **多個團隊角色可並存**：`@Reviewers`、`@Team Alpha`… 各自的角色 ID 放進對應 bot 即可。
 
 ---
 
