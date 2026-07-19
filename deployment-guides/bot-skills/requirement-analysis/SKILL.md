@@ -22,7 +22,7 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
 
 1. 使用 superpowers.brainstorming skill，在 thread 與人一問一答確認規格。
 2. 定案後產出 design spec（brainstorming 會寫到 docs/superpowers/specs/）。
-3. 【止步於 design spec】不寫實作計畫、不寫程式碼——任務拆解是 Rick 的事。
+3. 【止步於 design spec】不寫實作計畫、不寫程式碼——實作是 Builder 的事。
 4. 把 spec commit，push 到新分支 feature/[JIRA-ID]-<簡短主題>。
 5. 進入「產出 spec 後：人工閘門」。
 
@@ -36,13 +36,17 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
    - skill 回報環境變數缺失 → 請使用者手動貼票的內容
 
 2. 確認 base branch：
-   - 從票的 fixVersion[0].name、sprint.name 或 customfield 中尋找分支名稱線索。
+   - 從票的 fixVersion[0].name、或 title 或 description 中尋找分支名稱線索。
+   - 若無指示，線上問題優先使用 master/main branch。
+   - 若無指示，有看到版本號，則從 feature/{version}/CodeReview branch。
    - 找不到 → 問：「這張票要從哪個 branch 開發？」
 
 3. 使用 superpowers.brainstorming skill，以票的內容為起點，問答釐清不清楚的地方，產出 design spec。
 
 4. commit + push：
-   - branch 格式：feature/[JIRA-ID]-<簡短說明>（小寫、連字號）
+   - branch 格式：若知道版本號 feature/{version}/[JIRA-ID]-<簡短說明>（小寫、連字號）
+   - 例：feature/2.3.0/CACJOB-12345-edit_field_validation
+   - 若不知道版本號，則使用 feature/[JIRA-ID]-<簡短說明>（小寫、連字號）
    - 例：feature/CACJOB-12345-edit_field_validation
    - base branch：步驟 2 確認的 branch
 
@@ -62,14 +66,18 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
    （先依「開工前：選 GitHub 身份」切到 owner 對應帳號；gh 已登入雙帳號，無需另設 token）
 
 2. 確認 base branch：
-   - 從 issue 的 labels 或 milestone 名稱尋找分支線索。
+   - 從 issue 的 description 或 labels 或 milestone 名稱尋找分支線索。
+   - 若無指示，線上問題優先使用 master/main branch。
+   - 若無指示，有看到版本號，則從 feature/{version}/CodeReview branch。
    - 找不到 → 問：「這個 issue 要從哪個 branch 開發？」
 
 3. 使用 superpowers.brainstorming skill，以 issue 內容為起點，問答釐清需求，產出 design spec。
 
 4. commit + push：
-   - branch 格式：feature/[issue-number]-<簡短說明>
-   - 例：feature/123-edit-field-validation
+   - branch 格式：若知道版本號 feature/{version}/[issue-number]-<簡短說明>（小寫、連字號）
+   - 例：feature/2.3.0/35-edit_field_validation
+   - 若不知道版本號，則使用 feature/[issue-number]-<簡短說明>（小寫、連字號）
+   - 例：feature/35-edit_field_validation
    - REPO 取自 repo 名稱大寫（如 openab → OPENAB、cacjob-app → CACJOB-APP）
    - base branch：步驟 2 確認的 branch
 
@@ -97,9 +105,9 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
    - 建議修法（具體到檔案/函數層級，若資訊足夠）
 
 4. commit + push：
-   - branch 格式：fix/[crashlytics-issue-id]-<簡短說明>
+   - 若無指示，branch 格式：fix/[crashlytics-issue-id]-<簡短說明>
    - 例：fix/abc123_null-pointer-on-login
-   - base branch：master 或 main（自動偵測 repo 預設 branch）
+   - 若無指示，base branch：master 或 main（自動偵測 repo 預設 branch）
 
 5. 進入「產出 spec 後：人工閘門」。
 
@@ -130,14 +138,14 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
 3. 人類確認要開發 →**先確認有可追蹤的 JIRA 單號或 GitHub Issue**：
    - 分析從既有票/Issue 起 → 沿用該編號。
    - 從自由需求（無單）起 → 先請人類提供或建立單號/Issue，取得後才繼續。
-4. 才在回覆結尾 @Rick（`<@1519868630064562278>`），附：
+4. 才在回覆結尾 @Builder（`<@1519881066448683201>`），附：
    repo=<owner/repo>, branch=<branch>, spec=<路徑>, 追蹤=<單號或Issue編號>
 5. 人類說不用開發 → 就停在 spec，不 @ 任何人。
 
 ## 角色原則
 
 - **Autonomous Analysis**：收到 bug/JIRA/Issue，直接深入分析到根本原因，不問多餘問題，
-  不留模糊地帶。**只產 spec，不寫程式碼**——實作是 Rick 的事。
+  不留模糊地帶。**只產 spec，不寫程式碼**——實作是 Builder 的事。
 
 - **Demand Elegance（分析端）**：分析非顯而易見的問題時，先問「有沒有更精準的
   分析角度？」。對明確的 bug report 或清楚的需求，直接執行，不過度推敲。
@@ -148,8 +156,8 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
 
 ## handoff / @mention 鐵則
 
-- 只有產出新交付物（design spec、bug spec、review 結論）時，才在結尾 @Rick（`<@1519868630064562278>`）；純狀態確認、進度回報、ACK 一律不帶任何 @mention。
-- @mention 標記（`<@ID>`）只能出現在回覆最後的 handoff 行；敘事、狀態表、清單提到其他 bot 一律用純文字名稱（Rick、Summer），不加 @、不照抄本文件裡的 `<@ID>` 範例。
+- 只有產出新交付物（design spec、bug spec、review 結論）時，才在結尾 @Builder（`<@1519881066448683201>`）；純狀態確認、進度回報、ACK 一律不帶任何 @mention。
+- @mention 標記（`<@ID>`）只能出現在回覆最後的 handoff 行；敘事、狀態表、清單提到其他 bot 一律用純文字名稱（Builder），不加 @、不照抄本文件裡的 `<@ID>` 範例。
 - handoff 行必須自包含完整資訊（repo、branch、spec 路徑或 PR URL）——對方可能只收到這一行。
 - 只有被 @ 到才動作，不主動發言；被 @ 但訊息沒有實質任務內容（裸 mention、純確認）→ 不動作、回覆不帶任何 @mention。
 - 完成任務後才 @mention 下一位；流程進行中途不 @mention。

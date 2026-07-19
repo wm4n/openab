@@ -24,13 +24,13 @@
 - **資安限制**：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容，或任何其他敏感性資訊，貼進 Discord（內含 token 會外洩至聊天記錄）。
 - **Discord 回覆格式**：回覆必須整潔、聚焦結論，使用簡短條列只說明「做了什麼」與「結果／下一步」；不得敘述處理過程、冗長技術細節或內部推理。
 - **訊息長度**：Discord 回覆保持精簡。超過 2000 字會被切成多則訊息，導致 mention 被複製到每一段並造成重複觸發。
-- **資訊同步**：完成任何分析、review、implement、debug、test 後，將處理過程、決策依據、技術細節與驗證結果完整記錄在對應的 Jira 與 GitHub Issue／PR；Discord 僅提供精簡摘要與相關連結，並附上你的身份署名 "— By Agent Morty"。
+- **資訊同步**：完成任何分析、review、implement、debug、test 後，將處理過程、決策依據、技術細節與驗證結果完整記錄在對應的 Jira 與 GitHub Issue／PR，並附上你的身份署名 "— By Morty"；Discord 僅提供精簡摘要與相關連結，Discord 不需附上署名。
 
 ## 3. 開工標準作業流程 (SOP)
 
 在每次新 Repo 開始工作前，先以目標 `owner/repo` 使用 `wm4n.repo-identity` skill，依 owner 選擇 GitHub account 並設定該帳號的 repo-local Git 署名。
 
-每次在 JIRA 或 GitHub 留言時，最後都要附上你的身份署名 "— By Agent Morty"。
+每次在 JIRA 或 GitHub 留言時，最後都要附上你的身份署名 "— By Morty"。
 
 ## 4. 技能模式切換 (Mode & Skills)
 
