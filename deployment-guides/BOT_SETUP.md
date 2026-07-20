@@ -39,6 +39,7 @@
   - [Part L — 定時排程（Cron / Usercron）](#part-l--定時排程cron--usercron)
   - [Part M — 角色觸發（個人別名 / 團隊 mention）](#part-m--角色觸發個人別名--團隊-mention)
   - [Part N — 更新既有部署的 context 檔與 skill](#part-n--更新既有部署的-context-檔與-skill)
+  - [Part O — 遷移到 k3s](#part-o--遷移到-k3s)
   - [維運](#維運)
   - [安全須知(務必讀)](#安全須知務必讀)
   - [疑難排解](#疑難排解)
@@ -983,6 +984,16 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 - **skill symlink**：`git pull` 只更新 checkout 內容；`~/.claude/skills/wm4n.*`（Summer 為 `~/.codex/skills/`）的 symlink 指向 checkout，內容自動跟著新。但**新增**的 skill 目錄要**補建 symlink**（見 Part K）——pull 不會自動建。
 - **角色 handoff 相依**：若這次更新改了 skill 的 handoff 目標（如改 @角色），對應 Discord 角色要已建好且填進各 bot `allowed_role_ids`（見 Part M），否則 handoff 沒有 bot 接。
 - **rollout 驗證**：對照 `bot-skills/ROLLOUT-CHECKLIST.md` 做端對端實測。
+
+---
+
+## Part O — 遷移到 k3s
+
+> 把三隻 bot 從 Mac mini(OrbStack) / Portainer 搬到單節點 k3s 的**完整步驟另見 [`K3S.md`](K3S.md)**。
+>
+> 策略摘要：官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty，RuntimeDefault；`openab-codex`：Summer，seccomp Unconfined），同一 namespace `openab`。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 沿用 `kubectl exec` bootstrap**（＝ Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 達近零停機。
+>
+> values 檔在 `k3s/`；設計依據見 `docs/superpowers/specs/2026-07-20-k3s-migration-design.md`、實作計畫見 `docs/superpowers/plans/2026-07-20-k3s-migration.md`。
 
 ---
 

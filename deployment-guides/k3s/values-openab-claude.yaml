@@ -1,0 +1,56 @@
+# openab-claude release：Rick + Morty（Claude 家族，維持預設 seccomp RuntimeDefault）
+#
+# 用法：
+#   helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n openab \
+#     -f values-openab-claude.yaml -f values-secret.yaml
+#
+# ⚠️ Discord token 由 -f values-secret.yaml 疊加，不要寫在這裡。
+# ⚠️ 所有雪花 ID（channel/user/role/bot）一律用字串（引號）；chart 對浮點精度損毀有防呆會 fail。
+# ⚠️ <...> 為操作者必填：<CHANNEL_ID>、<YOUR_USER_ID>、<ANALYST_ROLE_ID>。
+#    已知固定 ID 已寫死（見各 agent 註解）。
+
+image:
+  repository: ghcr.io/openabdev/openab-claude
+
+agents:
+  rick:
+    command: claude-agent-acp
+    args: []
+    workingDir: /home/node          # HOME 跟著它；PVC 掛在此
+    discord:
+      enabled: true
+      allowedChannels: ["<CHANNEL_ID>"]
+      allowedUsers: ["<YOUR_USER_ID>"]
+      allowBotMessages: "mentions"                                   # bot 互呼（Part K）
+      trustedBotIds: ["1521431781641818202", "1522253638465093752"] # Morty, Summer
+      allowedRoleIds: ["1519881066448683201"]                        # Builder（Part M）
+    pool:
+      maxSessions: 5
+      sessionTtlHours: 24
+    persistence:
+      enabled: true
+      size: 2Gi
+
+  morty:
+    command: claude-agent-acp
+    args: []
+    workingDir: /home/node
+    discord:
+      enabled: true
+      allowedChannels: ["<CHANNEL_ID>"]
+      allowedUsers: ["<YOUR_USER_ID>"]
+      allowBotMessages: "mentions"
+      trustedBotIds: ["1519868630064562278", "1522253638465093752"] # Rick, Summer
+      allowedRoleIds: ["<ANALYST_ROLE_ID>", "1522274368590184601"]  # Analyst, Reviewer（Part M）
+    # Morty 的 JIRA 憑證：先在 VM 上 kubectl create secret generic morty-jira（見 K3S.md）。
+    # secretEnv 會 valueFrom.secretKeyRef 注入，並自動把這些 key 加進 config 的 inherit_env。
+    secretEnv:
+      - { name: JIRA_TOKEN,    secretName: morty-jira, secretKey: JIRA_TOKEN }
+      - { name: JIRA_BASE_URL, secretName: morty-jira, secretKey: JIRA_BASE_URL }
+      - { name: JIRA_EMAIL,    secretName: morty-jira, secretKey: JIRA_EMAIL }
+    pool:
+      maxSessions: 5
+      sessionTtlHours: 24
+    persistence:
+      enabled: true
+      size: 2Gi

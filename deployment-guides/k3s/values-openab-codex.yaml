@@ -1,0 +1,43 @@
+# openab-codex release：Summer（Codex 家族）
+#
+# 用法：
+#   helm install openab-codex oci://ghcr.io/openabdev/charts/openab -n openab \
+#     -f values-openab-codex.yaml -f values-secret-codex.yaml
+#
+# ⚠️ seccomp 放寬到 Unconfined，讓 codex-acp 內部 bwrap 能建 user namespace（openab issue #1047）。
+#    chart 的 podSecurityContext 是 chart-global，此處覆蓋會套用到本 release 所有 agent（目前只有 Summer）。
+#    這也是為什麼 Summer 要獨立成一個 release、不和 Rick/Morty 混（那兩隻維持 RuntimeDefault）。
+# ⚠️ Discord token 由 -f values-secret-codex.yaml 疊加，不要寫在這裡。
+
+image:
+  repository: ghcr.io/openabdev/openab-codex
+
+# 覆蓋 chart-global podSecurityContext：唯一差異是 seccompProfile 改 Unconfined。
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: Unconfined
+
+agents:
+  summer:
+    command: codex-acp
+    args: ["-c", "shell_environment_policy.inherit=all"]
+    workingDir: /home/node
+    discord:
+      enabled: true
+      allowedChannels: ["<CHANNEL_ID>"]
+      allowedUsers: ["<YOUR_USER_ID>"]
+      allowBotMessages: "mentions"
+      trustedBotIds: ["1519868630064562278", "1521431781641818202"] # Rick, Morty
+      allowedRoleIds: ["1522274368590184601"]                        # Reviewer（Part M）
+    pool:
+      maxSessions: 5
+      sessionTtlHours: 24
+    persistence:
+      enabled: true
+      size: 2Gi
+    # Codex 內部 ~/.codex/config.toml（issue #1047 三 key：sandbox_mode / approvals_reviewer /
+    # multi_agent）不在此 values——由 bootstrap 寫進 PVC（見 K3S.md）。
