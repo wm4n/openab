@@ -38,6 +38,7 @@
   - [Part K — 三 Bot 接力 Pipeline(Morty/Rick/Summer)](#part-k--三-bot-接力-pipelinemortricksummer)
   - [Part L — 定時排程（Cron / Usercron）](#part-l--定時排程cron--usercron)
   - [Part M — 角色觸發（個人別名 / 團隊 mention）](#part-m--角色觸發個人別名--團隊-mention)
+  - [Part N — 更新既有部署的 context 檔與 skill](#part-n--更新既有部署的-context-檔與-skill)
   - [維運](#維運)
   - [安全須知(務必讀)](#安全須知務必讀)
   - [疑難排解](#疑難排解)
@@ -934,6 +935,54 @@ disable_on_success_working_dir = "/home/node/<repo>"
 - **別讓 bot 自己去 mention 團隊角色**：搭配 `allow_bot_messages = "mentions"/"all"` 會造成 bot 互相觸發的迴圈；人類手動 @Team Alpha 沒問題。
 - **改 config 要重讀**：`allowed_role_ids` 在 config.toml，改完要 restart / redeploy（各 bot 的 config 位置見 [Part L L6](#l6-三顆-bot-的啟用位置) / Part K）。
 - **多個團隊角色可並存**：`@Reviewers`、`@Team Alpha`… 各自的角色 ID 放進對應 bot 即可。
+
+---
+
+## Part N — 更新既有部署的 context 檔與 skill
+
+> repo 的 persona（`*_v2.md`）或 pipeline skill 改版後，用這組步驟把變更推進已在跑的 bot。前提：容器內已 clone `/home/node/github-repo/openab`（見 Part K）、gh 已登入（私有 repo `git pull` 要認證）。
+>
+> 交付方式＝**v2 單檔版**：`git pull` 刷新 checkout（同時更新 v2 persona 與 skill 本體）→ 重新 `cat` v2 進 context 檔 → **開新 thread** 生效（context 檔與 skill 都在 session 啟動時載入，舊 thread 不會重讀，**不需** restart 容器）。
+
+### N1. 更新指令（各 bot）
+
+**Morty**（Portainer Console，user `node`）：
+
+```bash
+cd /home/node/github-repo/openab
+git fetch origin docs/three-bot-pipeline && git checkout docs/three-bot-pipeline && git pull
+cat deployment-guides/Morty-CLAUDE_v2.md > /home/node/CLAUDE.md
+head -1 /home/node/CLAUDE.md      # 確認：# CLAUDE.md — Agent Morty 核心運行指南
+```
+
+**Rick**（Mac mini）：
+
+```bash
+docker -c orbstack exec -i -u node openab-rick sh -c '
+  cd /home/node/github-repo/openab &&
+  git fetch origin docs/three-bot-pipeline &&
+  git checkout docs/three-bot-pipeline && git pull &&
+  cat deployment-guides/Rick-CLAUDE_v2.md > /home/node/CLAUDE.md &&
+  head -1 /home/node/CLAUDE.md'
+```
+
+**Summer**（Mac mini；目標檔是 `AGENTS.md`）：
+
+```bash
+docker -c orbstack exec -i -u node openab-summer sh -c '
+  cd /home/node/github-repo/openab &&
+  git fetch origin docs/three-bot-pipeline &&
+  git checkout docs/three-bot-pipeline && git pull &&
+  cat deployment-guides/Summer-AGENTS_v2.md > /home/node/AGENTS.md &&
+  head -1 /home/node/AGENTS.md'
+```
+
+### N2. 生效與相依項
+
+- **開新 thread**：在 Discord 開一條新 thread 才會重讀 context 檔與 skill；舊 thread 維持舊脈絡。
+- **skill symlink**：`git pull` 只更新 checkout 內容；`~/.claude/skills/wm4n.*`（Summer 為 `~/.codex/skills/`）的 symlink 指向 checkout，內容自動跟著新。但**新增**的 skill 目錄要**補建 symlink**（見 Part K）——pull 不會自動建。
+- **角色 handoff 相依**：若這次更新改了 skill 的 handoff 目標（如改 @角色），對應 Discord 角色要已建好且填進各 bot `allowed_role_ids`（見 Part M），否則 handoff 沒有 bot 接。
+- **rollout 驗證**：對照 `bot-skills/ROLLOUT-CHECKLIST.md` 做端對端實測。
 
 ---
 
