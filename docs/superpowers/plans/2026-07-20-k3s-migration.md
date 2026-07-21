@@ -24,7 +24,7 @@
 - Discord token **不進** `inherit_env`（agent 不可見）。
 - 操作者填入的值以 `<...>` 標記：`<CHANNEL_ID>`、`<YOUR_USER_ID>`、`<ANALYST_ROLE_ID>`、`<TEAM_ROLE_ID>`。已知固定 ID 直接寫死。
 - 已知固定 ID：Builder 角色 `1519881066448683201`、Reviewer 角色 `1522274368590184601`；bot user ID：Rick `1519868630064562278`、Morty `1521431781641818202`、Summer `1522253638465093752`。
-- 秘密檔 `values-secret.yaml` 必須被 gitignore，永不 commit。
+- 秘密檔 `values-secret-claude.yaml` 必須被 gitignore，永不 commit。
 
 ---
 
@@ -32,25 +32,25 @@
 
 **Files:**
 - Create: `deployment-guides/k3s/.gitignore`
-- Create: `deployment-guides/k3s/values-secret.example.yaml`
+- Create: `deployment-guides/k3s/values-secret-claude.example.yaml`
 - Create: `deployment-guides/k3s/README.md`
 
 **Interfaces:**
-- Produces: `deployment-guides/k3s/` 目錄；`values-secret.yaml` 檔名約定（Task 2/3/6 引用）。
+- Produces: `deployment-guides/k3s/` 目錄；`values-secret-claude.yaml` 檔名約定（Task 2/3/6 引用）。
 
 - [ ] **Step 1: 建 .gitignore 擋真實秘密檔**
 
 `deployment-guides/k3s/.gitignore`：
 ```
-values-secret.yaml
+values-secret-claude.yaml
 ```
 
 - [ ] **Step 2: 建 secret 範本**
 
-`deployment-guides/k3s/values-secret.example.yaml`：
+`deployment-guides/k3s/values-secret-claude.example.yaml`：
 ```yaml
-# 複製成 values-secret.yaml（已被 .gitignore，永不 commit）填入真實值。
-# helm install/upgrade 時以 -f values-secret.yaml 疊加，讓 Discord token 不進 git/shell history。
+# 複製成 values-secret-claude.yaml（已被 .gitignore，永不 commit）填入真實值。
+# helm install/upgrade 時以 -f values-secret-claude.yaml 疊加，讓 Discord token 不進 git/shell history。
 agents:
   rick:
     discord:
@@ -71,21 +71,21 @@ agents:
 
 - `values-openab-claude.yaml` — Rick + Morty（RuntimeDefault）
 - `values-openab-codex.yaml`  — Summer（Unconfined）
-- `values-secret.example.yaml` — 複製成 `values-secret.yaml`（gitignored）填 Discord token
+- `values-secret-claude.example.yaml` — 複製成 `values-secret-claude.yaml`（gitignored）填 Discord token
 
-安裝：`helm install openab-claude oci://ghcr.io/openabdev/charts/openab -f values-openab-claude.yaml -f values-secret.yaml -n cac`
+安裝：`helm install openab-claude oci://ghcr.io/openabdev/charts/openab -f values-openab-claude.yaml -f values-secret-claude.yaml -n cac`
 （chart 來源以實際發佈位置為準，見 K3S.md）
 ```
 
 - [ ] **Step 4: 驗證 gitignore 生效**
 
-Run: `cd deployment-guides/k3s && touch values-secret.yaml && git status --porcelain values-secret.yaml && rm values-secret.yaml`
-Expected: 無輸出（表示 values-secret.yaml 被忽略、不會被 git 追蹤）
+Run: `cd deployment-guides/k3s && touch values-secret-claude.yaml && git status --porcelain values-secret-claude.yaml && rm values-secret-claude.yaml`
+Expected: 無輸出（表示 values-secret-claude.yaml 被忽略、不會被 git 追蹤）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add deployment-guides/k3s/.gitignore deployment-guides/k3s/values-secret.example.yaml deployment-guides/k3s/README.md
+git add deployment-guides/k3s/.gitignore deployment-guides/k3s/values-secret-claude.example.yaml deployment-guides/k3s/README.md
 git commit -m "docs(k3s): k3s 工件目錄骨架與秘密防護"
 ```
 
@@ -97,7 +97,7 @@ git commit -m "docs(k3s): k3s 工件目錄骨架與秘密防護"
 - Create: `deployment-guides/k3s/values-openab-claude.yaml`
 
 **Interfaces:**
-- Consumes: `values-secret.yaml`（botToken，Task 1 約定）。
+- Consumes: `values-secret-claude.yaml`（botToken，Task 1 約定）。
 - Produces: `openab-claude` release 的 values；agent key `rick`、`morty`（deployment 名 `openab-claude-rick`/`openab-claude-morty`）。
 
 - [ ] **Step 1: 寫 values（Rick + Morty，RuntimeDefault、chart 預設 podSecurityContext 不覆蓋）**
@@ -105,7 +105,7 @@ git commit -m "docs(k3s): k3s 工件目錄骨架與秘密防護"
 `deployment-guides/k3s/values-openab-claude.yaml`：
 ```yaml
 # openab-claude release：Rick + Morty（Claude 家族，維持預設 seccomp RuntimeDefault）
-# 秘密（Discord token）由 -f values-secret.yaml 疊加；不要寫在這裡。
+# 秘密（Discord token）由 -f values-secret-claude.yaml 疊加；不要寫在這裡。
 image:
   repository: ghcr.io/openabdev/openab-claude
 
@@ -149,7 +149,7 @@ agents:
 
 Run: `helm lint charts/openab -f deployment-guides/k3s/values-openab-claude.yaml --set agents.rick.discord.botToken=x --set agents.morty.discord.botToken=y`
 Expected: `1 chart(s) linted, 0 chart(s) failed`
-> 給假 botToken 只為通過 render（真值走 values-secret.yaml）。若本機無 helm：`brew install helm` 或在 VM 執行。
+> 給假 botToken 只為通過 render（真值走 values-secret-claude.yaml）。若本機無 helm：`brew install helm` 或在 VM 執行。
 
 - [ ] **Step 3: 驗證生成的 config.toml 內容正確**
 
@@ -201,7 +201,7 @@ agents:
 
 Modify: `deployment-guides/k3s/.gitignore`，改為：
 ```
-values-secret.yaml
+values-secret-claude.yaml
 values-secret-codex.yaml
 ```
 
@@ -253,7 +253,7 @@ Expected: 看到 `type: Unconfined`、`command = "codex-acp"`、`shell_environme
 
 - [ ] **Step 5: 驗證 gitignore 擋住兩個秘密檔**
 
-Run: `cd deployment-guides/k3s && touch values-secret.yaml values-secret-codex.yaml && git status --porcelain | grep -c values-secret && rm values-secret.yaml values-secret-codex.yaml`
+Run: `cd deployment-guides/k3s && touch values-secret-claude.yaml values-secret-codex.yaml && git status --porcelain | grep -c values-secret && rm values-secret-claude.yaml values-secret-codex.yaml`
 Expected: `0`
 
 - [ ] **Step 6: Commit**
@@ -338,7 +338,7 @@ Expected: `secret/morty-jira created`
 
 Run:
 ```bash
-cp deployment-guides/k3s/values-secret.example.yaml deployment-guides/k3s/values-secret.yaml
+cp deployment-guides/k3s/values-secret-claude.example.yaml deployment-guides/k3s/values-secret-claude.yaml
 cp deployment-guides/k3s/values-secret-codex.example.yaml deployment-guides/k3s/values-secret-codex.yaml
 # 編輯兩檔填入真實 Discord token
 ```
@@ -356,7 +356,7 @@ Expected: 兩個 values-secret*.yaml 存在且已填 token（git 忽略）。
 ```bash
 helm install openab-claude charts/openab -n cac \
   -f deployment-guides/k3s/values-openab-claude.yaml \
-  -f deployment-guides/k3s/values-secret.yaml
+  -f deployment-guides/k3s/values-secret-claude.yaml
 ```
 若 pod 因未登入而 crashloop → 立即暫停連線：
 ```bash

@@ -8,7 +8,7 @@
 | --- | --- |
 | `values-openab-claude.yaml` | `openab-claude` release：Rick + Morty（RuntimeDefault） |
 | `values-openab-codex.yaml` | `openab-codex` release：Summer（seccomp Unconfined） |
-| `values-secret.example.yaml` | 複製成 `values-secret.yaml`（gitignored）填 Rick/Morty 的 Discord token |
+| `values-secret-claude.example.yaml` | 複製成 `values-secret-claude.yaml`（gitignored）填 Rick/Morty 的 Discord token |
 | `values-secret-codex.example.yaml` | 複製成 `values-secret-codex.yaml`（gitignored）填 Summer 的 Discord token |
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
 
@@ -39,11 +39,11 @@ helm template openab-claude ../../charts/openab \
 
 ```bash
 kubectl create namespace cac
-cp values-secret.example.yaml values-secret.yaml              # 填真值
+cp values-secret-claude.example.yaml values-secret-claude.yaml              # 填真值
 cp values-secret-codex.example.yaml values-secret-codex.yaml # 填真值
 
 helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
-  -f values-openab-claude.yaml -f values-secret.yaml
+  -f values-openab-claude.yaml -f values-secret-claude.yaml
 helm install openab-codex  oci://ghcr.io/openabdev/charts/openab -n cac \
   -f values-openab-codex.yaml -f values-secret-codex.yaml
 ```

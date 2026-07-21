@@ -2,9 +2,9 @@
 #
 # 用法：
 #   helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
-#     -f values-openab-claude.yaml -f values-secret.yaml
+#     -f values-openab-claude.yaml -f values-secret-claude.yaml
 #
-# ⚠️ Discord token 由 -f values-secret.yaml 疊加，不要寫在這裡。
+# ⚠️ Discord token 由 -f values-secret-claude.yaml 疊加，不要寫在這裡。
 # ⚠️ 所有雪花 ID（channel/user/role/bot）一律用字串（引號）；chart 對浮點精度損毀有防呆會 fail。
 # ⚠️ <...> 為操作者必填：<CHANNEL_ID>、<YOUR_USER_ID>、<ANALYST_ROLE_ID>。
 #    已知固定 ID 已寫死（見各 agent 註解）。

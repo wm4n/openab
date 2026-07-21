@@ -90,7 +90,7 @@ chart 從 `values.yaml` 生成 config.toml（掛成 ConfigMap → `/etc/openab/c
 ### 4.1 三種秘密，三種處理
 
 1. **Discord token → K8s Secret，agent 不可見**
-   chart 從 `discord.botToken` 生 Secret（key `discord-bot-token`），deployment 以 `secretKeyRef` 注入 `DISCORD_BOT_TOKEN` env（供 openab 展開 `${DISCORD_BOT_TOKEN}`）。**不進 `inherit_env`**。為避免 token 進 git/shell history：放進 gitignore 的 `values-secret.yaml`，`helm install -f values.yaml -f values-secret.yaml`。
+   chart 從 `discord.botToken` 生 Secret（key `discord-bot-token`），deployment 以 `secretKeyRef` 注入 `DISCORD_BOT_TOKEN` env（供 openab 展開 `${DISCORD_BOT_TOKEN}`）。**不進 `inherit_env`**。為避免 token 進 git/shell history：放進 gitignore 的 `values-secret-claude.yaml`，`helm install -f values.yaml -f values-secret-claude.yaml`。
 
 2. **Morty JIRA 憑證 → `secretEnv`（agent 需讀）**
    `kubectl create secret generic morty-jira --from-literal=...`，再 `agents.morty.secretEnv: [{name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN}, ...]`。chart 自動把這些 key 加進 `inherit_env`。
@@ -142,7 +142,7 @@ seccomp Unconfined 只移除 syscall 過濾層，不給 root/不加 capabilities
 
 **Phase A — 前置（Mac mini 照常，無衝突）**
 1. k3s 準備：namespace、確認 `local-path` storageClass、預拉 image。
-2. 寫兩 release 的 `values.yaml` + gitignore 的 `values-secret.yaml`。
+2. 寫兩 release 的 `values.yaml` + gitignore 的 `values-secret-claude.yaml`。
 3. 建 Discord 角色拿 ID 填 values；`kubectl create secret morty-jira`。
 4. `helm install` 兩 release，pod 以 **bootstrap 模式**啟動（不連 Discord；沿用 Part I 的 `sleep infinity` 覆蓋）。
 
@@ -183,7 +183,7 @@ seccomp Unconfined 只移除 syscall 過濾層，不給 root/不加 capabilities
 | 改什麼 | 動作 | 重啟 |
 | --- | --- | --- |
 | openab 設定（channel/role/cron/互呼） | 改 values → `helm upgrade` | chart config checksum 自動滾動重啟 |
-| Discord/JIRA token | 改 Secret / `values-secret.yaml` → upgrade | 要 |
+| Discord/JIRA token | 改 Secret / `values-secret-claude.yaml` → upgrade | 要 |
 | CLAUDE.md/AGENTS.md、skill | `kubectl exec` git pull + 重 cat（Part N） | 不用，開新 thread |
 | `cronjob.toml` 排程（Part L） | `kubectl exec` 改 PVC 上的檔 | 不用，熱重載 |
 
@@ -191,7 +191,7 @@ seccomp Unconfined 只移除 syscall 過濾層，不給 root/不加 capabilities
 
 1. `openab-claude` 的 `values.yaml`（Rick + Morty；Morty 帶 JIRA secretEnv、cron；RuntimeDefault）。
 2. `openab-codex` 的 `values.yaml`（Summer；Unconfined、Codex args）。
-3. gitignore 的 `values-secret.yaml` 樣板（Discord token）。
+3. gitignore 的 `values-secret-claude.yaml` 樣板（Discord token）。
 4. bootstrap runbook（§5 的逐 pod 指令），並回寫 `BOT_SETUP.md` 成一個 k3s 章節。
 5. cutover checklist（§7）。
 

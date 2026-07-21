@@ -82,7 +82,7 @@ kubectl create secret generic morty-jira -n cac \
 - 複製秘密範本並填 Discord token：
   ```bash
   cd deployment-guides/k3s
-  cp values-secret.example.yaml       values-secret.yaml
+  cp values-secret-claude.example.yaml       values-secret-claude.yaml
   cp values-secret-codex.example.yaml values-secret-codex.yaml
   # 編輯兩檔填入真實 Discord token（已被 .gitignore）
   ```
@@ -95,9 +95,9 @@ kubectl create secret generic morty-jira -n cac \
 
 ```bash
 helm lint ../../charts/openab \
-  -f values-openab-claude.yaml -f values-secret.yaml
+  -f values-openab-claude.yaml -f values-secret-claude.yaml
 helm template openab-claude ../../charts/openab \
-  -f values-openab-claude.yaml -f values-secret.yaml \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml \
   | grep -E 'command|allowed_role_ids|inherit_env|working_dir'
 ```
 確認：兩隻 `command = "claude-agent-acp"`、Morty 有 `allowed_role_ids` 與 `inherit_env=[JIRA_*]`、`working_dir = "/home/node"`。codex 同理（換 values-openab-codex.yaml / values-secret-codex.yaml）確認 `type: Unconfined`、`codex-acp`、`shell_environment_policy.inherit=all`。
@@ -112,7 +112,7 @@ helm template openab-claude ../../charts/openab \
 ```bash
 # 用本機 chart（推薦，與 A6 驗證同一份、欄位保證對得上）
 helm install openab-claude ../../charts/openab -n cac \
-  -f values-openab-claude.yaml -f values-secret.yaml
+  -f values-openab-claude.yaml -f values-secret-claude.yaml
 helm install openab-codex  ../../charts/openab -n cac \
   -f values-openab-codex.yaml -f values-secret-codex.yaml
 ```
