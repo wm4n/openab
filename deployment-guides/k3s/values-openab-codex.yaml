@@ -43,6 +43,7 @@ agents:
       sessionTtlHours: 24
     persistence:
       enabled: true
-      size: 2Gi
+      storageClass: cac-local   # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
+      size: 30Gi
     # Codex 內部 ~/.codex/config.toml（issue #1047 三 key：sandbox_mode / approvals_reviewer /
     # multi_agent）不在此 values——由 bootstrap 寫進 PVC（見 K3S.md）。

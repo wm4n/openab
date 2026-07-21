@@ -36,7 +36,8 @@ agents:
       sessionTtlHours: 24
     persistence:
       enabled: true
-      size: 2Gi
+      storageClass: cac-local   # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
+      size: 30Gi
 
   morty:
     command: claude-agent-acp
@@ -60,4 +61,5 @@ agents:
       sessionTtlHours: 24
     persistence:
       enabled: true
-      size: 2Gi
+      storageClass: cac-local   # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
+      size: 30Gi
