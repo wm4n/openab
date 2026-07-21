@@ -33,11 +33,11 @@ agents:
     workingDir: /home/node
     discord:
       enabled: true
-      allowedChannels: ["<CHANNEL_ID>"]
-      allowedUsers: ["<YOUR_USER_ID>"]
+      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedUsers: []                                               # 空=允許頻道內任何人
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1521431781641818202"] # Rick, Morty
-      allowedRoleIds: ["1522274368590184601"]                        # Reviewer（Part M）
+      allowedRoleIds: ["1528997980714303640"]                        # CAC-Reviewer（Part M）
     pool:
       maxSessions: 5
       sessionTtlHours: 24

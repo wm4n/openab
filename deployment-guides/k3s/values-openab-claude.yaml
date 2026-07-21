@@ -6,8 +6,10 @@
 #
 # ⚠️ Discord token 由 -f values-secret-claude.yaml 疊加，不要寫在這裡。
 # ⚠️ 所有雪花 ID（channel/user/role/bot）一律用字串（引號）；chart 對浮點精度損毀有防呆會 fail。
-# ⚠️ <...> 為操作者必填：<CHANNEL_ID>、<YOUR_USER_ID>、<ANALYST_ROLE_ID>。
-#    已知固定 ID 已寫死（見各 agent 註解）。
+# 頻道：cac-dev-team(1528965074562191420)、cac-notify(1528965173761802420)，兩個都要回應。
+# allowedUsers 留空 = 允許頻道內任何人 @（共用團隊頻道，不限定單一使用者）。
+# 角色（Part M，CAC k3s 專用，與舊 Mac mini 部署的 Builder/Reviewer ID 不同）：
+#   CAC-Analyst=1528997714879320134　CAC-Builder=1528997914049777764　CAC-Reviewer=1528997980714303640
 
 image:
   repository: ghcr.io/openabdev/openab-claude
@@ -24,11 +26,11 @@ agents:
     workingDir: /home/node          # HOME 跟著它；PVC 掛在此
     discord:
       enabled: true
-      allowedChannels: ["<CHANNEL_ID>"]
-      allowedUsers: ["<YOUR_USER_ID>"]
+      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedUsers: []                                               # 空=允許頻道內任何人
       allowBotMessages: "mentions"                                   # bot 互呼（Part K）
       trustedBotIds: ["1521431781641818202", "1522253638465093752"] # Morty, Summer
-      allowedRoleIds: ["1519881066448683201"]                        # Builder（Part M）
+      allowedRoleIds: ["1528997914049777764"]                        # CAC-Builder（Part M）
     pool:
       maxSessions: 5
       sessionTtlHours: 24
@@ -42,11 +44,11 @@ agents:
     workingDir: /home/node
     discord:
       enabled: true
-      allowedChannels: ["<CHANNEL_ID>"]
-      allowedUsers: ["<YOUR_USER_ID>"]
+      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedUsers: []                                               # 空=允許頻道內任何人
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1522253638465093752"] # Rick, Summer
-      allowedRoleIds: ["<ANALYST_ROLE_ID>", "1522274368590184601"]  # Analyst, Reviewer（Part M）
+      allowedRoleIds: ["1528997714879320134", "1528997980714303640"] # CAC-Analyst, CAC-Reviewer（Part M）
     # Morty 的 JIRA 憑證：先在 VM 上 kubectl create secret generic morty-jira（見 K3S.md）。
     # secretEnv 會 valueFrom.secretKeyRef 注入，並自動把這些 key 加進 config 的 inherit_env。
     secretEnv:
