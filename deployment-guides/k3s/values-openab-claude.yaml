@@ -24,6 +24,10 @@ agents:
     command: claude-agent-acp
     args: []
     workingDir: /home/node          # HOME 跟著它；PVC 掛在此
+    # openspec 裝在 PVC（npm prefix=/home/node/.npm-global，避開唯讀根碟）；
+    # PATH 加在最前面，讓 agent 與其 subprocess 都找得到 openspec 指令。
+    env:
+      PATH: "/home/node/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
