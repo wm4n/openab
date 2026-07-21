@@ -38,12 +38,12 @@ helm template openab-claude ../../charts/openab \
 ## 安裝（節錄，完整見 K3S.md）
 
 ```bash
-kubectl create namespace openab
+kubectl create namespace cac
 cp values-secret.example.yaml values-secret.yaml              # 填真值
 cp values-secret-codex.example.yaml values-secret-codex.yaml # 填真值
 
-helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n openab \
+helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
   -f values-openab-claude.yaml -f values-secret.yaml
-helm install openab-codex  oci://ghcr.io/openabdev/charts/openab -n openab \
+helm install openab-codex  oci://ghcr.io/openabdev/charts/openab -n cac \
   -f values-openab-codex.yaml -f values-secret-codex.yaml
 ```

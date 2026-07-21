@@ -1,7 +1,7 @@
 # openab-claude release：Rick + Morty（Claude 家族，維持預設 seccomp RuntimeDefault）
 #
 # 用法：
-#   helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n openab \
+#   helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
 #     -f values-openab-claude.yaml -f values-secret.yaml
 #
 # ⚠️ Discord token 由 -f values-secret.yaml 疊加，不要寫在這裡。

@@ -991,7 +991,7 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 
 > 把三隻 bot 從 Mac mini(OrbStack) / Portainer 搬到單節點 k3s 的**完整步驟另見 [`K3S.md`](K3S.md)**。
 >
-> 策略摘要：官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty，RuntimeDefault；`openab-codex`：Summer，seccomp Unconfined），同一 namespace `openab`。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 沿用 `kubectl exec` bootstrap**（＝ Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 達近零停機。
+> 策略摘要：官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty，RuntimeDefault；`openab-codex`：Summer，seccomp Unconfined），同一 namespace `cac`（團隊共用 namespace）。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 沿用 `kubectl exec` bootstrap**（＝ Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 達近零停機。
 >
 > values 檔在 `k3s/`；設計依據見 `docs/superpowers/specs/2026-07-20-k3s-migration-design.md`、實作計畫見 `docs/superpowers/plans/2026-07-20-k3s-migration.md`。
 

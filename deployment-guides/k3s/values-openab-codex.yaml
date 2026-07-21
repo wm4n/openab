@@ -1,7 +1,7 @@
 # openab-codex release：Summer（Codex 家族）
 #
 # 用法：
-#   helm install openab-codex oci://ghcr.io/openabdev/charts/openab -n openab \
+#   helm install openab-codex oci://ghcr.io/openabdev/charts/openab -n cac \
 #     -f values-openab-codex.yaml -f values-secret-codex.yaml
 #
 # ⚠️ seccomp 放寬到 Unconfined，讓 codex-acp 內部 bwrap 能建 user namespace（openab issue #1047）。

@@ -2,7 +2,7 @@
 
 > 把三隻 openab bot（Rick/Morty/Summer）從 Mac mini(OrbStack) + Portainer 搬到**單節點 Ubuntu VM 上的 k3s**。
 >
-> **策略**：混合——用官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty；`openab-codex`：Summer），同一 namespace `openab`。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 走 `kubectl exec` bootstrap**（＝ BOT_SETUP Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 把停機壓到近零。
+> **策略**：混合——用官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty；`openab-codex`：Summer），同一 namespace `cac`（團隊共用 namespace，未來其他 CAC 專案也可共用；與這台 cluster 上既有的另一組 openab 部署 `mis-ai`〔跑在 `default`〕區隔開）。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 走 `kubectl exec` bootstrap**（＝ BOT_SETUP Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 把停機壓到近零。
 >
 > 設計依據：`docs/superpowers/specs/2026-07-20-k3s-migration-design.md`。values 檔在 `deployment-guides/k3s/`。
 
@@ -61,7 +61,7 @@
 
 ```bash
 # A1. namespace
-kubectl create namespace openab
+kubectl create namespace cac
 
 # A2. 確認 local-path storageClass（k3s 內建）
 kubectl get storageclass          # 應看到 local-path (default)
@@ -71,7 +71,7 @@ sudo k3s ctr images pull ghcr.io/openabdev/openab-claude:latest
 sudo k3s ctr images pull ghcr.io/openabdev/openab-codex:latest
 
 # A4. Morty 的 JIRA secret
-kubectl create secret generic morty-jira -n openab \
+kubectl create secret generic morty-jira -n cac \
   --from-literal=JIRA_TOKEN='<你的_atlassian_token>' \
   --from-literal=JIRA_BASE_URL='https://yourorg.atlassian.net' \
   --from-literal=JIRA_EMAIL='<your-email@company.com>'
@@ -111,9 +111,9 @@ helm template openab-claude ../../charts/openab \
 **B1. install 兩個 release**（在 `deployment-guides/k3s/` 下）：
 ```bash
 # 用本機 chart（推薦，與 A6 驗證同一份、欄位保證對得上）
-helm install openab-claude ../../charts/openab -n openab \
+helm install openab-claude ../../charts/openab -n cac \
   -f values-openab-claude.yaml -f values-secret.yaml
-helm install openab-codex  ../../charts/openab -n openab \
+helm install openab-codex  ../../charts/openab -n cac \
   -f values-openab-codex.yaml -f values-secret-codex.yaml
 ```
 > `helm install` 也接受 OCI（`oci://ghcr.io/openabdev/charts/openab`）或 GitHub Pages repo；
@@ -122,33 +122,33 @@ helm install openab-codex  ../../charts/openab -n openab \
 **B2. 若 pod 因未登入 openab 而 crashloop → 用 sleep 覆蓋暫停連線**（bootstrap 期間不連 Discord）：
 ```bash
 for d in openab-claude-rick openab-claude-morty openab-codex-summer; do
-  kubectl -n openab patch deploy "$d" --type=json \
+  kubectl -n cac patch deploy "$d" --type=json \
     -p='[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sleep","infinity"]}]'
 done
-kubectl get pods -n openab       # 三個 pod 應為 Running（sleep）
+kubectl get pods -n cac       # 三個 pod 應為 Running（sleep）
 ```
 > 這是 BOT_SETUP Part I「sleep 待命再切正式」在 k8s 的等價做法。
 
-**B3. 逐 pod bootstrap**（取實際 pod 名 `kubectl get pods -n openab`；以下用 `$POD`）
+**B3. 逐 pod bootstrap**（取實際 pod 名 `kubectl get pods -n cac`；以下用 `$POD`）
 
 ① Claude/Codex 登入（需 TTY）：
 ```bash
-kubectl exec -it <rick-pod>   -n openab -- claude auth login
-kubectl exec -it <morty-pod>  -n openab -- claude auth login
-kubectl exec -it <summer-pod> -n openab -- codex login --device-auth
+kubectl exec -it <rick-pod>   -n cac -- claude auth login
+kubectl exec -it <morty-pod>  -n cac -- claude auth login
+kubectl exec -it <summer-pod> -n cac -- codex login --device-auth
 ```
 
 ② gh 雙帳號登入（token 從你本機 shell 餵入，不進 cluster）——對三隻各做：
 ```bash
-echo "$GH_TOKEN_WM4N" | kubectl exec -i $POD -n openab -- gh auth login --hostname github.com --with-token
-echo "$GH_TOKEN_CAC"  | kubectl exec -i $POD -n openab -- gh auth login --hostname github.com --with-token
-kubectl exec -i $POD -n openab -- gh auth setup-git
-kubectl exec $POD -n openab -- gh auth status     # 應看到 wm4n + cac-william
+echo "$GH_TOKEN_WM4N" | kubectl exec -i $POD -n cac -- gh auth login --hostname github.com --with-token
+echo "$GH_TOKEN_CAC"  | kubectl exec -i $POD -n cac -- gh auth login --hostname github.com --with-token
+kubectl exec -i $POD -n cac -- gh auth setup-git
+kubectl exec $POD -n cac -- gh auth status     # 應看到 wm4n + cac-william
 ```
 
 ③ clone repo + checkout（skill 本體 + context 來源）——對三隻各做：
 ```bash
-kubectl exec -i $POD -n openab -- sh -c '
+kubectl exec -i $POD -n cac -- sh -c '
   git clone https://github.com/wm4n/openab.git /home/node/github-repo/openab 2>/dev/null \
     || git -C /home/node/github-repo/openab pull
   cd /home/node/github-repo/openab && git checkout docs/three-bot-pipeline && git pull'
@@ -158,7 +158,7 @@ kubectl exec -i $POD -n openab -- sh -c '
 
 Rick：
 ```bash
-kubectl exec -i <rick-pod> -n openab -- sh -c '
+kubectl exec -i <rick-pod> -n cac -- sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
   mkdir -p /home/node/.claude/skills
   ln -sfn $CK/bot-skills/feature-development /home/node/.claude/skills/wm4n.feature-development
@@ -169,7 +169,7 @@ kubectl exec -i <rick-pod> -n openab -- sh -c '
 
 Morty（多 requirement-analysis / change-review + jira-fetch + superpowers）：
 ```bash
-kubectl exec -i <morty-pod> -n openab -- sh -c '
+kubectl exec -i <morty-pod> -n cac -- sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
   mkdir -p /home/node/.claude/skills
   for s in requirement-analysis change-review repo-identity schedule-management; do
@@ -180,7 +180,7 @@ kubectl exec -i <morty-pod> -n openab -- sh -c '
 
 Summer（Codex → `~/.codex/skills`）：
 ```bash
-kubectl exec -i <summer-pod> -n openab -- sh -c '
+kubectl exec -i <summer-pod> -n cac -- sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
   mkdir -p /home/node/.codex/skills
   ln -sfn $CK/bot-skills/change-review-codex /home/node/.codex/skills/wm4n.change-review-codex
@@ -189,7 +189,7 @@ kubectl exec -i <summer-pod> -n openab -- sh -c '
 
 ⑤ Summer 專屬 — 寫 `~/.codex/config.toml`（issue #1047）：
 ```bash
-kubectl exec -i <summer-pod> -n openab -- sh -c 'cat > /home/node/.codex/config.toml' <<'EOF'
+kubectl exec -i <summer-pod> -n cac -- sh -c 'cat > /home/node/.codex/config.toml' <<'EOF'
 sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
 approvals_reviewer = "auto_review"
@@ -204,7 +204,7 @@ EOF
 
 **B4. 本機驗證（不碰 Discord）**——逐 pod：
 ```bash
-kubectl exec $POD -n openab -- sh -c '
+kubectl exec $POD -n cac -- sh -c '
   gh auth status;
   ls ~/.claude/skills 2>/dev/null || ls ~/.codex/skills;
   head -1 ~/CLAUDE.md 2>/dev/null || head -1 ~/AGENTS.md'
@@ -222,13 +222,13 @@ kubectl exec $POD -n openab -- sh -c '
 
 # C2. 移除 sleep 覆蓋，讓 openab 正常啟動、連 Discord（用正式 token）
 for d in openab-claude-rick openab-claude-morty openab-codex-summer; do
-  kubectl -n openab patch deploy "$d" --type=json \
+  kubectl -n cac patch deploy "$d" --type=json \
     -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]'
 done
 
 # C3. 驗證上線
-kubectl get pods -n openab
-kubectl logs deploy/openab-claude-rick -n openab | grep -i discord   # 連線成功
+kubectl get pods -n cac
+kubectl logs deploy/openab-claude-rick -n cac | grep -i discord   # 連線成功
 ```
 > 若 B 階段沒用 patch、而是別的方式暫停連線，C2 改用對應方式恢復。
 
@@ -250,19 +250,19 @@ kubectl logs deploy/openab-claude-rick -n openab | grep -i discord   # 連線成
 ## Rollback
 
 - Mac mini/Portainer 容器**只停不刪**、volume 保留。
-- k3s 翻車 → 停 k3s（`kubectl scale deploy --all --replicas=0 -n openab` 或 `helm uninstall openab-claude openab-codex -n openab`）→ 到 Mac mini/Portainer `docker start` / Start 三隻 → token 回舊環境。**幾分鐘可逆。**
+- k3s 翻車 → 停 k3s（`kubectl scale deploy --all --replicas=0 -n cac` 或 `helm uninstall openab-claude openab-codex -n cac`）→ 到 Mac mini/Portainer `docker start` / Start 三隻 → token 回舊環境。**幾分鐘可逆。**
 - 確認 k3s 穩定數天後，才 `docker rm` Mac mini 容器與 volume。
 
 ---
 
-## 維運對照（全 `-n openab`）
+## 維運對照（全 `-n cac`）
 
 | 動作 | Mac mini | k3s |
 | --- | --- | --- |
-| 看狀態 | `docker ps` | `kubectl get pods -n openab` |
-| 看 log | `docker logs -f openab-rick` | `kubectl logs -f deploy/openab-claude-rick -n openab` |
-| 進容器 | `docker exec -it ... bash` | `kubectl exec -it <pod> -n openab -- bash` |
-| 重啟 | `docker restart` | `kubectl rollout restart deploy/<name> -n openab` |
+| 看狀態 | `docker ps` | `kubectl get pods -n cac` |
+| 看 log | `docker logs -f openab-rick` | `kubectl logs -f deploy/openab-claude-rick -n cac` |
+| 進容器 | `docker exec -it ... bash` | `kubectl exec -it <pod> -n cac -- bash` |
+| 重啟 | `docker restart` | `kubectl rollout restart deploy/<name> -n cac` |
 | 改 context/skill（Part N） | `docker exec … git pull + cat` | `kubectl exec … git pull + cat` → 開新 thread |
 
 **改動 → 動作：**
@@ -293,7 +293,7 @@ kubectl logs deploy/openab-claude-rick -n openab | grep -i discord   # 連線成
 
 | 症狀 | 原因 | 解法 |
 | --- | --- | --- |
-| Summer 所有 shell 指令 ❌（`unshare failed: Operation not permitted`） | seccomp 沒放寬，bwrap 建不了 namespace | 確認 `values-openab-codex.yaml` 的 `podSecurityContext.seccompProfile.type: Unconfined` 有生效；`kubectl exec <summer-pod> -n openab -- unshare --user echo ok` 應回 `ok` |
+| Summer 所有 shell 指令 ❌（`unshare failed: Operation not permitted`） | seccomp 沒放寬，bwrap 建不了 namespace | 確認 `values-openab-codex.yaml` 的 `podSecurityContext.seccompProfile.type: Unconfined` 有生效；`kubectl exec <summer-pod> -n cac -- unshare --user echo ok` 應回 `ok` |
 | pod crashloop、log 說沒登入 / 沒 config | openab 啟動時 Claude/Codex 未登入 | 用 Phase B2 的 sleep 覆蓋，bootstrap 完再移除 |
 | 雪花 ID 被 chart 拒（`mangled ID`） | values 用了數字而非字串 | 所有 ID 用引號字串，或 `--set-string` |
 | gh `restart 後消失` | 登入時非 node / PVC 沒持久 / env 有裸 `GH_TOKEN` | 以 node 登入；確認 PVC 掛 `/home/node`；別設裸 `GH_TOKEN` |

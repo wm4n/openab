@@ -29,15 +29,15 @@
 | --- | --- | --- |
 | 遷移模式 | **直接切換 (cutover)** | 停機短、最單純；用 sleep 隔離 bootstrap 把停機壓到近零（見 §7）。 |
 | 部署策略 | **混合**：chart 當骨架 + Discord token 走 K8s Secret + 憑證/context/skill 走 exec bootstrap | 前期工小、風險低、與現行 runbook 幾乎無縫；chart 幫忙處理 k8s 的坑（seccomp/uid/PVC）。 |
-| release 佈局 | **兩個 release**（`openab-claude`：Rick+Morty；`openab-codex`：Summer），同一 namespace `openab` | chart 的 securityContext 只能 chart-global、不能 per-agent；把放寬 seccomp 的範圍限在只需要的 Codex 家族。 |
-| namespace | `openab` | 預設。 |
+| release 佈局 | **兩個 release**（`openab-claude`：Rick+Morty；`openab-codex`：Summer），同一 namespace `cac` | chart 的 securityContext 只能 chart-global、不能 per-agent；把放寬 seccomp 的範圍限在只需要的 Codex 家族。 |
+| namespace | `cac`（團隊共用；rollout 實測時修正，見下方附註） | 原定案 `openab` 過於通用；rollout 實測發現同一 cluster 已有另一組 openab 部署（`mis-ai`，跑在 `default`），改用團隊名稱 `cac` 避免與軟體名混淆，並供未來其他 CAC 專案共用。 |
 | image | 官方 `ghcr.io/openabdev/openab-claude`、`openab-codex`（公開、免 imagePullSecret） | 與現行同一套 image。 |
 
 ## 3. 架構與拓撲
 
 ```
 Ubuntu VM ── k3s (單節點)
-└── namespace: openab
+└── namespace: cac
     ├── release: openab-claude   (seccompProfile: RuntimeDefault, 硬化)
     │   ├── agent "rick"   → Deployment + PVC + ConfigMap + Secret
     │   └── agent "morty"  → Deployment + PVC + ConfigMap + Secret
@@ -103,7 +103,7 @@ chart 從 `values.yaml` 生成 config.toml（掛成 ConfigMap → `/etc/openab/c
 
 ## 5. exec bootstrap（每隻 pod 一次性設定）
 
-`helm install` 只拉起 pod + PVC；接著每隻 pod 做 bootstrap（＝ BOT_SETUP Part E/F/K/N 的 k8s 版，`docker exec`→`kubectl exec`，全部 `-n openab`）。
+`helm install` 只拉起 pod + PVC；接著每隻 pod 做 bootstrap（＝ BOT_SETUP Part E/F/K/N 的 k8s 版，`docker exec`→`kubectl exec`，全部 `-n cac`）。
 
 共同步驟：
 
@@ -119,7 +119,7 @@ chart 從 `values.yaml` 生成 config.toml（掛成 ConfigMap → `/etc/openab/c
 3. **clone openab repo**（skill 本體 + context 來源）到 `/home/node/github-repo/openab`，checkout `docs/three-bot-pipeline`。
 4. **symlink skills**（Rick/Morty → `~/.claude/skills`；Summer → `~/.codex/skills`）。
 5. **cat v2 context**（Rick/Morty → `CLAUDE.md`；Summer → `AGENTS.md`）。
-6. **重啟**載入憑證與 context：`kubectl rollout restart deploy/<name> -n openab`。
+6. **重啟**載入憑證與 context：`kubectl rollout restart deploy/<name> -n cac`。
 
 各自專屬：
 
@@ -168,14 +168,14 @@ seccomp Unconfined 只移除 syscall 過濾層，不給 root/不加 capabilities
 
 **加 agent**：Claude 家族 → `openab-claude` values 加 `agents.<name>`；Codex 家族 → `openab-codex`（自動繼承 Unconfined）。`helm upgrade` → 新 pod+PVC → 對新 pod 跑 §5 bootstrap（含自己的 Discord app/token）。
 
-**維運對照（全 `-n openab`）**：
+**維運對照（全 `-n cac`）**：
 
 | 動作 | Mac mini | k3s |
 | --- | --- | --- |
-| 看狀態 | `docker ps` | `kubectl get pods -n openab` |
-| 看 log | `docker logs -f openab-rick` | `kubectl logs -f deploy/openab-claude-rick -n openab` |
-| 進容器 | `docker exec -it ... bash` | `kubectl exec -it <pod> -n openab -- bash` |
-| 重啟 | `docker restart` | `kubectl rollout restart deploy/<name> -n openab` |
+| 看狀態 | `docker ps` | `kubectl get pods -n cac` |
+| 看 log | `docker logs -f openab-rick` | `kubectl logs -f deploy/openab-claude-rick -n cac` |
+| 進容器 | `docker exec -it ... bash` | `kubectl exec -it <pod> -n cac -- bash` |
+| 重啟 | `docker restart` | `kubectl rollout restart deploy/<name> -n cac` |
 | 改 context/skill(Part N) | `docker exec … git pull + cat` | `kubectl exec … git pull + cat` → 開新 thread |
 
 **改動 → 動作**：
