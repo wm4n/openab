@@ -13,6 +13,11 @@ image:
   repository: ghcr.io/openabdev/openab-claude
 
 agents:
+  # chart 內建一個預設範例 agent "kiro"（enabled: true）；我們沒用到，必須明確關閉，
+  # 否則會被 Helm 一起合併進來、多裝出一個沒設定好的 kiro-cli pod。
+  kiro:
+    enabled: false
+
   rick:
     command: claude-agent-acp
     args: []
