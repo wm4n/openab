@@ -87,15 +87,20 @@ kubectl create secret generic morty-jira -n openab \
   # 編輯兩檔填入真實 Discord token（已被 .gitignore）
   ```
 
-**A6. render 驗證**（不碰 cluster）：
+**A6. render 驗證**（不碰 cluster；在 `deployment-guides/k3s/` 下執行）：
+
+> ⚠️ `helm lint` **只吃本機 chart 路徑或 .tgz，不接受 `oci://`**。用本機 chart
+> `../../charts/openab`（repo 已 clone）——也保證 values 對得上你手上的 chart 版本，
+> 避免 OCI 發佈版較舊、缺 `allowedRoleIds`/`cron`/`secretEnv` 欄位。
+
 ```bash
-helm lint oci://ghcr.io/openabdev/charts/openab \
+helm lint ../../charts/openab \
   -f values-openab-claude.yaml -f values-secret.yaml
-helm template openab-claude oci://ghcr.io/openabdev/charts/openab \
+helm template openab-claude ../../charts/openab \
   -f values-openab-claude.yaml -f values-secret.yaml \
   | grep -E 'command|allowed_role_ids|inherit_env|working_dir'
 ```
-確認：兩隻 `command = "claude-agent-acp"`、Morty 有 `allowed_role_ids` 與 `inherit_env=[JIRA_*]`、`working_dir = "/home/node"`。codex 同理確認 `type: Unconfined`、`codex-acp`、`shell_environment_policy.inherit=all`。
+確認：兩隻 `command = "claude-agent-acp"`、Morty 有 `allowed_role_ids` 與 `inherit_env=[JIRA_*]`、`working_dir = "/home/node"`。codex 同理（換 values-openab-codex.yaml / values-secret-codex.yaml）確認 `type: Unconfined`、`codex-acp`、`shell_environment_policy.inherit=all`。
 
 ---
 
@@ -103,14 +108,16 @@ helm template openab-claude oci://ghcr.io/openabdev/charts/openab \
 
 > 目標：pod 起來但 openab **不連 Discord**，才能在 Mac mini 仍運行時安全 bootstrap（同一 token 不能兩處連線）。
 
-**B1. install 兩個 release**：
+**B1. install 兩個 release**（在 `deployment-guides/k3s/` 下）：
 ```bash
-cd deployment-guides/k3s
-helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n openab \
+# 用本機 chart（推薦，與 A6 驗證同一份、欄位保證對得上）
+helm install openab-claude ../../charts/openab -n openab \
   -f values-openab-claude.yaml -f values-secret.yaml
-helm install openab-codex  oci://ghcr.io/openabdev/charts/openab -n openab \
+helm install openab-codex  ../../charts/openab -n openab \
   -f values-openab-codex.yaml -f values-secret-codex.yaml
 ```
+> `helm install` 也接受 OCI（`oci://ghcr.io/openabdev/charts/openab`）或 GitHub Pages repo；
+> 但若 A6 驗證顯示 OCI 版缺欄位，就用本機 chart 或 `--version` 指定較新版。
 
 **B2. 若 pod 因未登入 openab 而 crashloop → 用 sleep 覆蓋暫停連線**（bootstrap 期間不連 Discord）：
 ```bash

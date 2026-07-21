@@ -14,21 +14,26 @@
 
 ## 快速驗證（在有 helm 的機器）
 
+> ⚠️ `helm lint` **只吃本機 chart 路徑或 .tgz**，不接受 `oci://`。repo 已 clone
+> 時直接指本機 chart `../../charts/openab`（也保證 values 對得上你手上的 chart 版本，
+> 避免 OCI 發佈版較舊、缺 `allowedRoleIds`/`cron`/`secretEnv` 欄位）。
+
 ```bash
 # 語法/模板檢查（給假 token 只為通過 render）
-helm lint oci://ghcr.io/openabdev/charts/openab \
+helm lint ../../charts/openab \
   -f values-openab-claude.yaml \
   --set agents.rick.discord.botToken=x --set agents.morty.discord.botToken=y
 
 # 看生成的 config.toml 對不對
-helm template openab-claude oci://ghcr.io/openabdev/charts/openab \
+helm template openab-claude ../../charts/openab \
   -f values-openab-claude.yaml \
   --set agents.rick.discord.botToken=x --set agents.morty.discord.botToken=y \
   | grep -E 'command|allowed_role_ids|inherit_env|working_dir'
 ```
 
-> chart 也可用本機路徑 `charts/openab`（若 repo 已 clone）或 GitHub Pages repo
-> （`helm repo add openab https://openabdev.github.io/openab`）。
+> `helm template` / `helm install` 則**可**用 OCI（`oci://ghcr.io/openabdev/charts/openab`）
+> 或 GitHub Pages repo（`helm repo add openab https://openabdev.github.io/openab`）——
+> 但若欄位對不上請改回本機 chart 或用 `--version` 指定較新版。
 
 ## 安裝（節錄，完整見 K3S.md）
 
