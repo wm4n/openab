@@ -154,37 +154,42 @@ kubectl exec -i $POD -n cac -- sh -c '
   cd /home/node/github-repo/openab && git checkout docs/three-bot-pipeline && git pull'
 ```
 
-④ symlink skills + cat v2 context（依角色；skill 清單見 BOT_SETUP Part K）：
+④ cat v2 context + 裝 plugin skill（依角色；標準已改為純 CLI plugin 安裝，見 BOT_SETUP Part K2a/K2b。skill 清單見 Part K）：
+
+> 2026-07-22 起：`feature-development`/`repo-identity`/`schedule-management`/`requirement-analysis`/`change-review`/`change-review-codex` 已不再手動 symlink，改由 `wm4n/skill-registry` 這個 marketplace 的 `openab-bot-skills` plugin 統一安裝；persona 檔（Rick/Morty-CLAUDE_v2.md、Summer-AGENTS_v2.md）已改為引用裸名（如 `feature-development`，不帶 `openab-bot-skills:` 前綴），三隻皆已實測確認可用。
 
 Rick：
 ```bash
 kubectl exec -i <rick-pod> -n cac -- sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
-  mkdir -p /home/node/.claude/skills
-  ln -sfn $CK/bot-skills/feature-development /home/node/.claude/skills/wm4n.feature-development
-  ln -sfn $CK/bot-skills/repo-identity       /home/node/.claude/skills/wm4n.repo-identity
-  ln -sfn $CK/bot-skills/schedule-management /home/node/.claude/skills/wm4n.schedule-management
   cat $CK/Rick-CLAUDE_v2.md > /home/node/CLAUDE.md'
+kubectl exec <rick-pod> -n cac -- claude plugin marketplace add wm4n/skill-registry
+kubectl exec <rick-pod> -n cac -- claude plugin install openab-bot-skills@wm4n-skill-registry
 ```
 
 Morty（多 requirement-analysis / change-review + jira-fetch + superpowers）：
 ```bash
 kubectl exec -i <morty-pod> -n cac -- sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
-  mkdir -p /home/node/.claude/skills
-  for s in requirement-analysis change-review repo-identity schedule-management; do
-    ln -sfn $CK/bot-skills/$s /home/node/.claude/skills/wm4n.$s; done
   cat $CK/Morty-CLAUDE_v2.md > /home/node/CLAUDE.md'
-# jira-fetch 與 superpowers 依 BOT_SETUP Part K2 另裝（jira-fetch clone、superpowers 互動 /plugins）
+kubectl exec <morty-pod> -n cac -- claude plugin marketplace add wm4n/skill-registry
+kubectl exec <morty-pod> -n cac -- claude plugin install openab-bot-skills@wm4n-skill-registry
+# jira-fetch 依 BOT_SETUP Part K2 另裝（clone + symlink，尚未切換成 plugin）
+# superpowers 純 CLI（見 BOT_SETUP Part K2a）：
+kubectl exec <morty-pod> -n cac -- claude plugin marketplace add anthropics/claude-plugins-official
+kubectl exec <morty-pod> -n cac -- claude plugin install superpowers@claude-plugins-official
 ```
 
-Summer（Codex → `~/.codex/skills`）：
+Summer（Codex → `codex plugin`，見 BOT_SETUP Part K2a/K2b）：
 ```bash
 kubectl exec -i <summer-pod> -n cac -- sh -c '
   CK=/home/node/github-repo/openab/deployment-guides
-  mkdir -p /home/node/.codex/skills
-  ln -sfn $CK/bot-skills/change-review-codex /home/node/.codex/skills/wm4n.change-review-codex
   cat $CK/Summer-AGENTS_v2.md > /home/node/AGENTS.md'
+kubectl exec <summer-pod> -n cac -- codex plugin marketplace add wm4n/skill-registry
+kubectl exec <summer-pod> -n cac -- codex plugin add openab-bot-skills@wm4n-skill-registry
+# superpowers（Codex 版，marketplace 來源與 Claude 端不同）：
+kubectl exec <summer-pod> -n cac -- codex plugin marketplace add obra/superpowers-marketplace
+kubectl exec <summer-pod> -n cac -- codex plugin add superpowers@superpowers-marketplace
 ```
 
 ⑤ Summer 專屬 — 寫 `~/.codex/config.toml`（issue #1047）：
@@ -207,9 +212,10 @@ EOF
 kubectl exec $POD -n cac -- sh -c '
   gh auth status;
   ls ~/.claude/skills 2>/dev/null || ls ~/.codex/skills;
+  cat ~/.claude/plugins/installed_plugins.json 2>/dev/null || cat ~/.codex/plugins.json 2>/dev/null;
   head -1 ~/CLAUDE.md 2>/dev/null || head -1 ~/AGENTS.md'
 ```
-確認：兩帳號、skill symlink、persona 標題都在。
+確認：兩帳號、`openab-bot-skills`/`superpowers` plugin 都已安裝（`~/.claude/skills`／`~/.codex/skills` 目前只剩 `jira-fetch` 這類仍走手動 symlink 的 skill）、persona 標題都在。
 
 ---
 

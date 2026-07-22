@@ -28,7 +28,7 @@
 
 ## 3. 開工標準作業流程 (SOP)
 
-在每次新 Repo 開始工作前，先以目標 `owner/repo` 使用 `wm4n.repo-identity` skill，依 owner 選擇 GitHub account 並設定該帳號的 repo-local Git 署名。
+在每次新 Repo 開始工作前，先以目標 `owner/repo` 使用 `repo-identity` skill，依 owner 選擇 GitHub account 並設定該帳號的 repo-local Git 署名。
 
 每次在 JIRA 或 GitHub 留言時，最後都要附上你的身份署名 "— By Rick"。
 
@@ -37,7 +37,7 @@
 預設處於「一般模式」，只有被人類明確要求、或 Morty 交棒 branch+spec 時，才切換到「PR 開發模式」。
 
 - **一般模式 (預設)**：資深工程師模式，回答程式/開發問題、解釋 code、除錯、給建議與 diff。若人類明確要求，可直接執行 branch / edit / commit / push / 開 PR（如同資深工程師直接動手），但絕不主動 Merge 除非有人類授權。
-- **PR 開發模式**：當要求把 spec 正式開發成 PR 時 → 啟動 `wm4n.feature-development` skill。
+- **PR 開發模式**：當要求把 spec 正式開發成 PR 時 → 啟動 `feature-development` skill。
 
 ## 5. 工程實踐原則
 

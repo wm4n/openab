@@ -548,7 +548,8 @@ ln -sfn /home/node/github-repo/openab/deployment-guides/bot-skills/repo-identity
 ls -la /home/node/.claude/skills/   # wm4n.requirement-analysis / wm4n.change-review / wm4n.repo-identity symlink 都在
 ```
 
-> ⚠️ **ACP skill 載入規則（實測）**：claude-agent-acp 只掃描 `~/.claude/skills/<name>/SKILL.md`；marketplace（`/plugins`）裝在 `~/.claude/plugins/cache/` 的**不會**被載入，所以裝完一定要 symlink 進 `~/.claude/skills/`。symlink 指 git checkout／plugin 目錄，**別指** cache 版本目錄（`.../1.0.0/`，更新就斷鏈）。
+> ⚠️ **ACP skill 載入規則（舊版實測，Mac mini/Portainer 這批版本適用）**：claude-agent-acp 只掃描 `~/.claude/skills/<name>/SKILL.md`；marketplace（`/plugins`）裝在 `~/.claude/plugins/cache/` 的**不會**被載入，所以裝完一定要 symlink 進 `~/.claude/skills/`。symlink 指 git checkout／plugin 目錄，**別指** cache 版本目錄（`.../1.0.0/`，更新就斷鏈）。
+> **2026-07-22 於 k3s 較新版本推翻此結論**：見下方 [K2a](#k2a--superpowers-純-cli-安裝法2026-07-22-起k3s-驗證)（superpowers）與 [K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22)（`wm4n.*` pipeline skill），純 CLI 裝好後**不用**手動 symlink 也讀得到。本節（Mac mini 部署）維持原始文件，供對照歷史沿革。
 > ⚠️ **skill 名稱一致 + 不要用 cat**：CLAUDE.md 直接用自然語言講 skill 名稱（如「使用 superpowers.brainstorming skill」），**不要**寫成 `cat <路徑>/SKILL.md` 把內容印出來；prompt 裡的名稱必須等於 skill 清單顯示名（＝ symlink 目錄名）。superpowers 系列統一用 `superpowers.` prefix（`superpowers.brainstorming`、`superpowers.systematic-debugging`）；`jira-fetch` 非 superpowers、維持原名；wm4n/openab repo 內建 skill 的 symlink 目錄名與 context 檔引用名統一加 `wm4n.` prefix（`wm4n.requirement-analysis`、`wm4n.change-review`、`wm4n.repo-identity`），SKILL.md frontmatter `name` 維持裸名（同 superpowers 前例，ACP 以 symlink 目錄名為準）。
 
 **gh 雙帳號登入**（Console，user `node`；`GH_TOKEN_WM4N/CAC` 已由 Stack env 注入）：
@@ -581,6 +582,68 @@ head -5 /home/node/CLAUDE.md   # 應看到「Agent Morty 核心運行指南」
 ```
 
 **重啟後驗證** `env | grep JIRA` 看到三個 JIRA 變數有值。
+
+### K2a — superpowers 純 CLI 安裝法（2026-07-22 起，k3s 驗證）
+
+> 取代上面 K2 的「互動 `/plugins` → 手動 symlink」流程。`jira-fetch` 目前仍走 Part K 原本的 clone + symlink 方式（技術上也能透過 `wm4n/skill-registry` 既有的 `skill-registry` plugin 純 CLI 裝，但尚未切換、不影響現況）；`wm4n.*` pipeline skill（`requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`schedule-management`/`change-review-codex`）已改走純 CLI，見下方 [K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22)。
+
+**Claude 家族（Rick、Morty；`kubectl exec` 換成對應 pod/deployment 即可）：**
+
+```bash
+kubectl exec deployment/openab-claude-morty -n cac -- claude plugin marketplace add anthropics/claude-plugins-official
+kubectl exec deployment/openab-claude-morty -n cac -- claude plugin install superpowers@claude-plugins-official
+
+# 驗證裝上（不用再手動 symlink 進 ~/.claude/skills/）
+kubectl exec deployment/openab-claude-morty -n cac -- cat /home/node/.claude/plugins/installed_plugins.json
+```
+
+✅ **已於 Morty、Rick 兩隻實測**：裝完直接在 Discord mention 該 bot、請它**實際呼叫**一個 superpowers skill（例如「請用 Skill 工具呼叫 superpowers:brainstorming」），能成功載入內容——證實 ACP 現在（本批 image 版本）能直接讀到 marketplace 裝的 plugin，不需要手動 symlink。
+
+**Codex 家族（Summer）：指令平行但語法不同，且 marketplace 來源不同**
+
+`codex` CLI 有獨立但語法對應的 plugin 系統。⚠️ 用 Claude 那個 `anthropics/claude-plugins-official` marketplace 對 Codex **未驗證能不能通**；改用 superpowers 作者自己的 marketplace repo 才裝成功：
+
+```bash
+kubectl exec deployment/openab-codex-summer -n cac -- codex plugin marketplace add obra/superpowers-marketplace
+kubectl exec deployment/openab-codex-summer -n cac -- codex plugin add superpowers@superpowers-marketplace
+
+# 驗證裝上
+kubectl exec deployment/openab-codex-summer -n cac -- codex plugin list
+```
+
+✅ **已確認安裝成功且執行期讀得到**（版本 6.1.1，與 Claude 端一致，裝在 `~/.codex/plugins/cache/superpowers-marketplace/superpowers/6.1.1`）。2026-07-22 已在 Discord 對 Summer 實測呼叫 superpowers skill 成功——codex-acp 確實掃得到這個 plugin cache 路徑，跟 `~/.codex/skills/` 的手動 symlink 是各自獨立、互不影響的兩條路徑，並存不衝突。
+
+### K2b — openab bot-skills 也改走同一套 plugin 安裝法（2026-07-22）
+
+> `wm4n/skill-registry` 這個 repo 本身就是一個 marketplace（`.claude-plugin/marketplace.json`，marketplace 名稱 `wm4n-skill-registry`），除了原本的 `skill-registry` plugin（jira-fetch/learn-from-repo/self-evolution）之外，新增了 **`openab-bot-skills`** plugin，把 `requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`schedule-management`/`change-review-codex` 這 6 個 pipeline skill 都包進去了。**推翻上面 K2/K2a 說「wm4n.\* 沒有 marketplace 來源、仍要 clone+symlink」的說法**——現在也走純 CLI：
+
+```bash
+# Claude 家族（Rick、Morty）
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace add wm4n/skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin install openab-bot-skills@wm4n-skill-registry
+
+kubectl exec deployment/openab-claude-morty -n cac -- claude plugin marketplace add wm4n/skill-registry
+kubectl exec deployment/openab-claude-morty -n cac -- claude plugin install openab-bot-skills@wm4n-skill-registry
+
+# Codex 家族（Summer）
+kubectl exec deployment/openab-codex-summer -n cac -- codex plugin marketplace add wm4n/skill-registry
+kubectl exec deployment/openab-codex-summer -n cac -- codex plugin add openab-bot-skills@wm4n-skill-registry
+```
+
+✅ **已於 Rick、Morty、Summer 三隻全數實測成功**。裝好後 skill 清單顯示名是 `openab-bot-skills:feature-development` 這種 `plugin:skill` 格式（跟 `superpowers:brainstorming` 一樣），**但 Rick 實測用裸名 `requirement-analysis`（不加任何前綴）一樣能成功呼叫**——Claude 自己會把自然語言提到的裸名對應到清單裡的完整名稱。因此 **persona 檔（CLAUDE.md/AGENTS.md）裡引用 skill 一律寫裸名即可**（如「使用 feature-development skill」），不用寫 `openab-bot-skills:` 前綴，寫法與既有 `superpowers.*`／舊 `wm4n.*` 慣例保持一致的簡潔度。
+
+⚠️ **重複 skill 的收尾**：這批 bot 原本用 K3S.md／Part K 的方式手動 symlink 了 `wm4n.feature-development`、`wm4n.repo-identity`、`wm4n.schedule-management`（Rick/Morty）、`wm4n.change-review-codex`（Summer）。改用 plugin 安裝後，同一個 skill 會同時存在兩份（`wm4n.xxx` 手動版 + `openab-bot-skills:xxx` plugin 版）——不會衝突報錯，但兩份內容之後會各自維護、容易漂移不同步。確認 persona 檔已全部改用裸名（見上）後，**應刪除舊的手動 symlink**：
+
+```bash
+# Rick / Morty
+kubectl exec deployment/openab-claude-rick  -n cac -- rm -f /home/node/.claude/skills/wm4n.feature-development /home/node/.claude/skills/wm4n.repo-identity /home/node/.claude/skills/wm4n.schedule-management
+kubectl exec deployment/openab-claude-morty -n cac -- rm -f /home/node/.claude/skills/wm4n.requirement-analysis /home/node/.claude/skills/wm4n.change-review /home/node/.claude/skills/wm4n.repo-identity /home/node/.claude/skills/wm4n.schedule-management
+
+# Summer
+kubectl exec deployment/openab-codex-summer -n cac -- rm -f /home/node/.codex/skills/wm4n.change-review-codex /home/node/.codex/skills/wm4n.repo-identity
+```
+
+之後要更新 skill 內容，改 `deployment-guides/bot-skills/` 裡的檔案不再有作用（那份 clone 已經不是真相來源），要同步更新 `wm4n/skill-registry` repo 裡 `plugins/openab-bot-skills/skills/` 對應檔案、bump `plugin.json`/`marketplace.json` 版本號、push，再對每隻 bot 跑 `claude plugin marketplace update` / `codex plugin marketplace upgrade` + 重裝。
 
 ### K3. Rick(Claude@OrbStack Mac mini) — openspec 開發
 
