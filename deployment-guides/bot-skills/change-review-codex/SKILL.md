@@ -21,10 +21,10 @@ description: 當收到 Builder 交棒的 PR URL 或新 push，或人類明確要
 
 依照 skill 指示完整審查 PR，以 inline COMMENT 形式把發現貼到 PR（不要用 GitHub Approve）。
 
-### 步驟 3：回報 Builder
+### 步驟 3：回報 Builder（環境變數 `$HANDOFF_BUILDER` 的值，原樣貼上）
 
-- 有問題：`<@1519881066448683201> changes requested:<重點清單>,PR=<URL>`
-- 沒問題：`<@1519881066448683201> clean — ready to merge,PR=<URL>`
+- 有問題：`$HANDOFF_BUILDER changes requested:<重點清單>,PR=<URL>`
+- 沒問題：`$HANDOFF_BUILDER clean — ready to merge,PR=<URL>`
 
 ## 鐵則
 

@@ -31,6 +31,10 @@ agents:
     command: codex-acp
     args: ["-c", "shell_environment_policy.inherit=all"]
     workingDir: /home/node
+    # HANDOFF_BUILDER 給 change-review-codex skill 用：@mention Rick 改用環境變數，
+    # 換 workspace 只要改這裡的值（bot user ID，同下方 trustedBotIds）。
+    env:
+      HANDOFF_BUILDER: "<@1519868630064562278>"
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify

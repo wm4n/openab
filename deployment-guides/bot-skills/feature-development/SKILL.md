@@ -13,8 +13,8 @@ description: 當收到 Analyst 交棒的 branch 與 spec、或人類明確要求
    `/opsx:new "<依 spec 濃縮的描述> + 規格連結"` → `/opsx:apply`（一路做完、不中途等人）→ `/opsx:archive`
    【archive 先做】收進正式 spec 後才開 PR。
 4. commit + push；用 `gh pr create` 開 PR。
-5. PR 建立完成後，才發一次 mention（只發這一次）：
-   @Reviewer（`<@1522274368590184601>`）
+5. PR 建立完成後，才發一次 mention（只發這一次），@ 兩位 reviewer（環境變數
+   `$HANDOFF_REVIEWER_MORTY`、`$HANDOFF_REVIEWER_SUMMER` 的值，原樣貼上）：
    「PR 好了：<PR_URL>，請 review」，並列出：
    - 這次改了什麼（簡短清單）
    - 這次改了哪些檔案（簡短清單）
@@ -29,8 +29,8 @@ description: 當收到 Analyst 交棒的 branch 與 spec、或人類明確要求
   針對意見【跑新一輪 /opsx 流程】（new→apply→archive），
   push 進【同一個 PR】（同一 branch，累積 commits）。
   不要改已 archive 的舊 change。
-  push 完成後才發一次 mention 重審（只發這一次）：
-  @Reviewer（`<@1522274368590184601>`）「新 push <SHA>，請重新 review，PR=<URL>」
+  push 完成後才發一次 mention 重審（只發這一次），@ 兩位 reviewer（`$HANDOFF_REVIEWER_MORTY`、
+  `$HANDOFF_REVIEWER_SUMMER` 的值，原樣貼上）「新 push <SHA>，請重新 review，PR=<URL>」
 - **兩位 reviewer 都回 clean**：
   在 thread 通知人類：「兩位 reviewer 都清了，待你 approve+merge，PR=<URL>」
 - **訊息只是狀態確認/ACK**（沒有 changes requested、沒有新 review 結論、沒有新任務）：

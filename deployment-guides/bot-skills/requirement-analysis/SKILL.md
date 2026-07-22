@@ -138,7 +138,7 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
 3. 人類確認要開發 →**先確認有可追蹤的 JIRA 單號或 GitHub Issue**：
    - 分析從既有票/Issue 起 → 沿用該編號。
    - 從自由需求（無單）起 → 先請人類提供或建立單號/Issue，取得後才繼續。
-4. 才在回覆結尾 @Builder（`<@1519881066448683201>`），附：
+4. 才在回覆結尾 @Builder（環境變數 `$HANDOFF_BUILDER` 的值，原樣貼上），附：
    repo=<owner/repo>, branch=<branch>, spec=<路徑>, 追蹤=<單號或Issue編號>
 5. 人類說不用開發 → 就停在 spec，不 @ 任何人。
 
@@ -156,7 +156,7 @@ description: 當人類明確要求把需求、JIRA 票、GitHub Issue 或 crash 
 
 ## handoff / @mention 鐵則
 
-- 只有產出新交付物（design spec、bug spec、review 結論）時，才在結尾 @Builder（`<@1519881066448683201>`）；純狀態確認、進度回報、ACK 一律不帶任何 @mention。
+- 只有產出新交付物（design spec、bug spec、review 結論）時，才在結尾 @Builder（環境變數 `$HANDOFF_BUILDER` 的值，原樣貼上）；純狀態確認、進度回報、ACK 一律不帶任何 @mention。
 - @mention 標記（`<@ID>`）只能出現在回覆最後的 handoff 行；敘事、狀態表、清單提到其他 bot 一律用純文字名稱（Builder），不加 @、不照抄本文件裡的 `<@ID>` 範例。
 - handoff 行必須自包含完整資訊（repo、branch、spec 路徑或 PR URL）——對方可能只收到這一行。
 - 只有被 @ 到才動作，不主動發言；被 @ 但訊息沒有實質任務內容（裸 mention、純確認）→ 不動作、回覆不帶任何 @mention。
