@@ -39,6 +39,11 @@ agents:
       allowBotMessages: "mentions"                                   # bot 互呼（Part K）
       trustedBotIds: ["1521431781641818202", "1522253638465093752"] # Morty, Summer
       allowedRoleIds: ["1528997914049777764"]                        # CAC-Builder（Part M）
+    # usercron：cronjob.toml 熱重載排程（schedule-management skill 用）；
+    # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
+    cron:
+      usercronEnabled: true
+      usercronPath: "cronjob.toml"
     pool:
       maxSessions: 5
       sessionTtlHours: 24
@@ -68,6 +73,11 @@ agents:
       - { name: JIRA_TOKEN,    secretName: morty-jira, secretKey: JIRA_TOKEN }
       - { name: JIRA_BASE_URL, secretName: morty-jira, secretKey: JIRA_BASE_URL }
       - { name: JIRA_EMAIL,    secretName: morty-jira, secretKey: JIRA_EMAIL }
+    # usercron：cronjob.toml 熱重載排程（schedule-management skill 用）；
+    # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
+    cron:
+      usercronEnabled: true
+      usercronPath: "cronjob.toml"
     pool:
       maxSessions: 5
       sessionTtlHours: 24

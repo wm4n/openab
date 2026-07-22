@@ -42,6 +42,11 @@ agents:
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1521431781641818202"] # Rick, Morty
       allowedRoleIds: ["1528997980714303640"]                        # CAC-Reviewer（Part M）
+    # usercron：cronjob.toml 熱重載排程（schedule-management skill 用）；
+    # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
+    cron:
+      usercronEnabled: true
+      usercronPath: "cronjob.toml"
     pool:
       maxSessions: 5
       sessionTtlHours: 24
