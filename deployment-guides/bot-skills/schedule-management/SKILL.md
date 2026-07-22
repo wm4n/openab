@@ -85,6 +85,7 @@ timezone = "Asia/Taipei"
 
 - cron：`0 9 * * 1-5` 平日 9 點｜`0 18 * * *` **每天** 18 點｜`0 0 * * 0` 週日午夜｜`*/30 * * * *` 每 30 分｜`0 9 1 * *` 每月 1 號 9 點。
 - 查看：`cat ~/.openab/cronjob.toml`。停用某 job：該段 `enabled = false`（或整段刪）。
+- 其他欄位：`thread_id`（貼進既有 thread 而非開新頻道訊息，跟人類要這個 ID）、`platform`（預設 `"discord"`，只有要排 Slack 才需要指定 `"slack"`）。
 - 進階：目標達成自停用 `disable_on_success`（需 `id`）；完整欄位／限制見 repo 的 `docs/cronjob.md` 或 `deployment-guides/CRONJOB.md`。
 - ⚠️ 週幾別混用數字與名稱（`1,Mon` ❌）、別用繞回範圍（`5-2` ❌）；長任務（>5 分）別排太密（有 overlap 保護會跳過）。
 
