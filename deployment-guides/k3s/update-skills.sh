@@ -9,8 +9,9 @@
 #    新 thread 都會起一個全新 session（新的 claude 行程），理論上開新 thread 就夠，
 #    不需要重啟 pod。如果新 thread 驗證後發現沒吃到新版，才需要
 #    `kubectl rollout restart deployment/<name> -n cac` 保險。
-# ⚠️ Codex 沒有 `plugin update` 子指令，用 remove+add 重裝到最新版本（remove 找不到
-#    舊安裝時會失敗，用 `|| true` 讓腳本繼續跑，不代表真的有錯）。
+# ⚠️ Codex 沒有 `plugin update` 子指令，用 remove+add 重裝到最新版本；remove 跟 add
+#    一樣要帶 <plugin>@<marketplace>（光寫裸名會報 "requires --marketplace" 錯誤）。
+#    remove 在從未裝過時也會失敗，用 `|| true` 讓腳本繼續跑，不代表真的有錯。
 
 set -euo pipefail
 
@@ -30,9 +31,9 @@ echo
 
 echo "=== Summer (openab-codex-summer) ==="
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove openab-bot-skills || true
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove openab-bot-skills@wm4n-skill-registry || true
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add openab-bot-skills@wm4n-skill-registry
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove superpowers || true
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove superpowers@superpowers-marketplace || true
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add superpowers@superpowers-marketplace
 echo
 
