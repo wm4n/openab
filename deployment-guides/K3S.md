@@ -156,7 +156,7 @@ kubectl exec -i $POD -n cac -- sh -c '
 
 ④ cat v2 context + 裝 plugin skill（依角色；標準已改為純 CLI plugin 安裝，見 BOT_SETUP Part K2a/K2b。skill 清單見 Part K）：
 
-> 2026-07-22 起：`feature-development`/`repo-identity`/`schedule-management`/`requirement-analysis`/`change-review`/`change-review-codex` 已不再手動 symlink，改由 `wm4n/skill-registry` 這個 marketplace 的 `openab-bot-skills` plugin 統一安裝；persona 檔（Rick/Morty-CLAUDE_v2.md、Summer-AGENTS_v2.md）已改為引用裸名（如 `feature-development`，不帶 `openab-bot-skills:` 前綴），三隻皆已實測確認可用。
+> 2026-07-22 起：`feature-development`/`repo-identity`/`openab-schedule`/`requirement-analysis`/`change-review`/`change-review-codex` 已不再手動 symlink，改由 `wm4n/skill-registry` 這個 marketplace 的 `openab-bot-skills` plugin 統一安裝；persona 檔（Rick/Morty-CLAUDE_v2.md、Summer-AGENTS_v2.md）已改為引用裸名（如 `feature-development`，不帶 `openab-bot-skills:` 前綴），三隻皆已實測確認可用。
 
 Rick：
 ```bash

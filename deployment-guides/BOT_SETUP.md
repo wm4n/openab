@@ -585,7 +585,7 @@ head -5 /home/node/CLAUDE.md   # 應看到「Agent Morty 核心運行指南」
 
 ### K2a — superpowers 純 CLI 安裝法（2026-07-22 起，k3s 驗證）
 
-> 取代上面 K2 的「互動 `/plugins` → 手動 symlink」流程。`jira-fetch` 目前仍走 Part K 原本的 clone + symlink 方式（技術上也能透過 `wm4n/skill-registry` 既有的 `skill-registry` plugin 純 CLI 裝，但尚未切換、不影響現況）；`wm4n.*` pipeline skill（`requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`schedule-management`/`change-review-codex`）已改走純 CLI，見下方 [K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22)。
+> 取代上面 K2 的「互動 `/plugins` → 手動 symlink」流程。`jira-fetch` 目前仍走 Part K 原本的 clone + symlink 方式（技術上也能透過 `wm4n/skill-registry` 既有的 `skill-registry` plugin 純 CLI 裝，但尚未切換、不影響現況）；`wm4n.*` pipeline skill（`requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`openab-schedule`/`change-review-codex`）已改走純 CLI，見下方 [K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22)。
 
 **Claude 家族（Rick、Morty；`kubectl exec` 換成對應 pod/deployment 即可）：**
 
@@ -615,7 +615,7 @@ kubectl exec deployment/openab-codex-summer -n cac -- codex plugin list
 
 ### K2b — openab bot-skills 也改走同一套 plugin 安裝法（2026-07-22）
 
-> `wm4n/skill-registry` 這個 repo 本身就是一個 marketplace（`.claude-plugin/marketplace.json`，marketplace 名稱 `wm4n-skill-registry`），除了原本的 `skill-registry` plugin（jira-fetch/learn-from-repo/self-evolution）之外，新增了 **`openab-bot-skills`** plugin，把 `requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`schedule-management`/`change-review-codex` 這 6 個 pipeline skill 都包進去了。**推翻上面 K2/K2a 說「wm4n.\* 沒有 marketplace 來源、仍要 clone+symlink」的說法**——現在也走純 CLI：
+> `wm4n/skill-registry` 這個 repo 本身就是一個 marketplace（`.claude-plugin/marketplace.json`，marketplace 名稱 `wm4n-skill-registry`），除了原本的 `skill-registry` plugin（jira-fetch/learn-from-repo/self-evolution）之外，新增了 **`openab-bot-skills`** plugin，把 `requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`openab-schedule`/`change-review-codex` 這 6 個 pipeline skill 都包進去了。**推翻上面 K2/K2a 說「wm4n.\* 沒有 marketplace 來源、仍要 clone+symlink」的說法**——現在也走純 CLI：
 
 ```bash
 # Claude 家族（Rick、Morty）
@@ -632,7 +632,7 @@ kubectl exec deployment/openab-codex-summer -n cac -- codex plugin add openab-bo
 
 ✅ **已於 Rick、Morty、Summer 三隻全數實測成功**。裝好後 skill 清單顯示名是 `openab-bot-skills:feature-development` 這種 `plugin:skill` 格式（跟 `superpowers:brainstorming` 一樣），**但 Rick 實測用裸名 `requirement-analysis`（不加任何前綴）一樣能成功呼叫**——Claude 自己會把自然語言提到的裸名對應到清單裡的完整名稱。因此 **persona 檔（CLAUDE.md/AGENTS.md）裡引用 skill 一律寫裸名即可**（如「使用 feature-development skill」），不用寫 `openab-bot-skills:` 前綴，寫法與既有 `superpowers.*`／舊 `wm4n.*` 慣例保持一致的簡潔度。
 
-⚠️ **重複 skill 的收尾**：這批 bot 原本用 K3S.md／Part K 的方式手動 symlink 了 `wm4n.feature-development`、`wm4n.repo-identity`、`wm4n.schedule-management`（Rick/Morty）、`wm4n.change-review-codex`（Summer）。改用 plugin 安裝後，同一個 skill 會同時存在兩份（`wm4n.xxx` 手動版 + `openab-bot-skills:xxx` plugin 版）——不會衝突報錯，但兩份內容之後會各自維護、容易漂移不同步。確認 persona 檔已全部改用裸名（見上）後，**應刪除舊的手動 symlink**：
+⚠️ **重複 skill 的收尾**：這批 bot 原本用 K3S.md／Part K 的方式手動 symlink 了 `wm4n.feature-development`、`wm4n.repo-identity`、`wm4n.schedule-management`（Rick/Morty，plugin 版已改名 `openab-schedule`，symlink 檔名歷史上維持原樣）、`wm4n.change-review-codex`（Summer）。改用 plugin 安裝後，同一個 skill 會同時存在兩份（`wm4n.xxx` 手動版 + `openab-bot-skills:xxx` plugin 版）——不會衝突報錯，但兩份內容之後會各自維護、容易漂移不同步。確認 persona 檔已全部改用裸名（見上）後，**應刪除舊的手動 symlink**：
 
 ```bash
 # Rick / Morty
