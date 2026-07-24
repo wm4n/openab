@@ -362,6 +362,7 @@ helm upgrade <openab-claude 或 openab-codex> ../../charts/openab -n cac -f <val
   - 獨立型（自己一手包辦，不跟其他 bot 互動）→ `claude plugin install solo-bot-skills@wm4n-skill-registry`。
   - 兩個 plugin 刻意分開維護（`wm4n/skill-registry`），不是同一包裝好靠 persona 文件叫它「不要用」——結構上隔開，ACP 的語意比對才不會選錯（例如獨立型 bot 誤觸發 `feature-development`，或接力型 bot 誤觸發 `solo-feature-pipeline`）。
   - **裝完務必 `kubectl exec <pod> -n cac -- claude plugin list` 確認乾淨**：獨立型只該看到 `solo-bot-skills`，接力型只該看到 `openab-bot-skills`，兩者不該同時出現（`openab-schedule` 兩個 plugin 都各包一份，混裝的話這個 skill 會重複出現，是最容易發現的訊號）。genie 上線時就實際踩過混裝這個坑（`claude plugin uninstall openab-bot-skills@wm4n-skill-registry` 修掉），之後新加 agent 一律先過這關再收尾。
+  - **另外一律加裝 `skill-registry@wm4n-skill-registry`**（jira-fetch/learn-from-repo/self-evolution，2026-07-24 定案四隻都裝，不分接力型/獨立型）：`claude plugin install skill-registry@wm4n-skill-registry`（Codex 用 `codex plugin add skill-registry@wm4n-skill-registry`）。該 bot 用不到 jira-fetch/learn-from-repo 是已知 tradeoff（三個 skill 綁同一個 plugin，換來 self-evolution 全 bot 可用）。
 - 寫 persona：新建 `<Name>-CLAUDE_v2.md`（或 Codex 用 AGENTS.md），`cat` 進 `/home/node/CLAUDE.md`。
 - 全部裝完後跑一次 `deployment-guides/k3s/update-context.sh` / `update-skills.sh`，把新 bot 也納入固定的更新腳本。
 
@@ -386,3 +387,4 @@ helm upgrade <openab-claude 或 openab-codex> ../../charts/openab -n cac -f <val
 | pod 連上 Discord 但立刻報 `Discord rejected privileged intents` | Discord Developer Portal 忘記開 **MESSAGE CONTENT INTENT** | Bot 分頁 → Privileged Gateway Intents → 開啟 → `kubectl rollout restart deploy/<name> -n cac`（不用 helm upgrade）|
 | 兩隻 bot 同一 token 都回應/互踢 | Mac mini 與 k3s 同 token 同時連線 | cutover 時先停 Mac mini（Phase C1）再移除 k3s sleep（C2） |
 | 獨立型 bot（如 genie）能力清單同時列出 `feature-development`/`requirement-analysis`/`change-review` 等接力專用 skill、`openab-schedule` 重複出現兩次 | Bootstrap 時裝成 `openab-bot-skills`（或兩個都裝），沒照「未來加 agent」步驟 5 的接力型/獨立型二選一 | `kubectl exec <pod> -n cac -- claude plugin uninstall openab-bot-skills@wm4n-skill-registry`（獨立型只留 `solo-bot-skills`），裝完用 `claude plugin list` 確認乾淨 |
+| 四隻 bot 能力清單都看不到 `jira-fetch`/`learn-from-repo`/`self-evolution` | k3s 遷移的 Phase B3 只裝了 `openab-bot-skills`/`solo-bot-skills`，`skill-registry` plugin（這三個 skill 的來源）從沒被任何一隻裝上；`update-skills.sh` 原本只想幫 Morty 補裝，但這段其實從沒被真的執行過（2026-07-24 才發現） | 跑更新後的 `update-skills.sh`（已改成四隻都 `install`+`update` `skill-registry@wm4n-skill-registry`），裝完 `claude plugin list`（Codex 用 `codex plugin list`）確認四隻都看得到這三個 skill |
