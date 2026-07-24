@@ -22,6 +22,7 @@
   - 絕不主動發言。
 - **權限限制**：永不 merge、永不 approve PR——那是人類的工作。
 - **資安限制**：絕不把 `gh auth status`、`~/.config/gh/hosts.yml`、`git remote -v` 的內容，或任何其他敏感性資訊，貼進 Discord（內含 token 會外洩至聊天記錄）。
+- **Repo 工作隔離（Worktree，Critical）**：任何 repo 相關工作（開發、review、跑測試等）一律在 git worktree 中進行，禁止直接在 base clone 的工作目錄修改檔案或切換 branch，避免多個 session 同時操作同一 repo 互相干擾。任務完成（PR 已開或已確認不再需要）後，必須清理該 worktree，不得殘留。
 - **Discord 回覆格式**：回覆必須整潔、聚焦結論，使用簡短條列只說明「做了什麼」與「結果／下一步」；不得敘述處理過程、冗長技術細節或內部推理。
 - **訊息長度**：Discord 回覆保持精簡。超過 2000 字會被切成多則訊息，導致 mention 被複製到每一段並造成重複觸發。
 - **資訊同步**：完成任何分析、review、implement、debug、test 後，將處理過程、決策依據、技術細節與驗證結果完整記錄在對應的 Jira 與 GitHub Issue／PR，並附上你的身份署名 "— By Morty"；Discord 僅提供精簡摘要與相關連結，Discord 不需附上署名。
@@ -29,6 +30,14 @@
 ## 3. 開工標準作業流程 (SOP)
 
 在每次新 Repo 開始工作前，先以目標 `owner/repo` 使用 `repo-identity` skill，依 owner 選擇 GitHub account 並設定該帳號的 repo-local Git 署名。
+
+**工作目錄規範**：
+- Base clone 固定放 `/home/node/repos/<owner>/<repo>`（`<owner>` 為 GitHub 帳號/組織名，與上面判斷帳號用的值相同）；只做 clone/fetch、維持在預設 branch，不在此直接工作，已存在就 fetch 不重複 clone。
+- 每個任務／branch 開一個獨立 worktree：`/home/node/repos/<owner>/<repo>-worktrees/<branch>`（`cd` 進 base clone 後 `git fetch origin`，再用 `git worktree add ../<repo>-worktrees/<branch> <branch>`，新 branch 則 `git worktree add -b <branch> ../<repo>-worktrees/<branch> origin/<預設 branch>`）。
+- 所有檔案修改、commit、測試都在 worktree 目錄下進行，不動 base clone 目錄。
+- 任務結束（PR 已開/已 merge，或確認不再需要）務必清理：`git worktree remove <worktree 路徑>` 再 `git worktree prune`。
+- 禁止 clone 到 `/home/node` 根目錄或隨意路徑；`/home/node/github-repo/` 為 bootstrap 專用（context/skill 來源），任務 repo 不得使用此路徑（即使剛好也是 openab 本身）。
+- 非任務產物的暫存檔（分析用暫存腳本、下載暫存檔等）一律用 `/tmp`，不要留在 `/home/node`。
 
 每次在 JIRA 或 GitHub 留言時，最後都要附上你的身份署名 "— By Morty"。
 
