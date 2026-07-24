@@ -23,7 +23,7 @@ agents:
   rick:
     command: claude-agent-acp
     args: []
-    workingDir: /home/node          # HOME 跟著它；PVC 掛在此
+    workingDir: /home/node # HOME 跟著它；PVC 掛在此
     # openspec 裝在 PVC（npm prefix=/home/node/.npm-global，避開唯讀根碟）；
     # PATH 加在最前面，讓 agent 與其 subprocess 都找得到 openspec 指令。
     # HANDOFF_* 給 feature-development skill 用：@mention 目標改用環境變數，
@@ -35,10 +35,10 @@ agents:
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
-      allowedUsers: []                                               # 空=允許頻道內任何人
-      allowBotMessages: "mentions"                                   # bot 互呼（Part K）
+      allowedUsers: ["824092654060830770"] # 空=允許頻道內任何人
+      allowBotMessages: "mentions" # bot 互呼（Part K）
       trustedBotIds: ["1521431781641818202", "1522253638465093752"] # Morty, Summer
-      allowedRoleIds: ["1528997914049777764"]                        # CAC-Builder（Part M）
+      allowedRoleIds: ["1528997914049777764"] # CAC-Builder（Part M）
     # usercron：cronjob.toml 熱重載排程（openab-schedule skill 用）；
     # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
     cron:
@@ -49,7 +49,7 @@ agents:
       sessionTtlHours: 24
     persistence:
       enabled: true
-      storageClass: cac-local   # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
+      storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
       size: 30Gi
 
   morty:
@@ -63,16 +63,20 @@ agents:
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
-      allowedUsers: []                                               # 空=允許頻道內任何人
+      allowedUsers: ["824092654060830770"] # 空=允許頻道內任何人
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1522253638465093752"] # Rick, Summer
       allowedRoleIds: ["1528997714879320134", "1528997980714303640"] # CAC-Analyst, CAC-Reviewer（Part M）
     # Morty 的 JIRA 憑證：先在 VM 上 kubectl create secret generic morty-jira（見 K3S.md）。
     # secretEnv 會 valueFrom.secretKeyRef 注入，並自動把這些 key 加進 config 的 inherit_env。
     secretEnv:
-      - { name: JIRA_TOKEN,    secretName: morty-jira, secretKey: JIRA_TOKEN }
-      - { name: JIRA_BASE_URL, secretName: morty-jira, secretKey: JIRA_BASE_URL }
-      - { name: JIRA_EMAIL,    secretName: morty-jira, secretKey: JIRA_EMAIL }
+      - { name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN }
+      - {
+          name: JIRA_BASE_URL,
+          secretName: morty-jira,
+          secretKey: JIRA_BASE_URL,
+        }
+      - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
     # usercron：cronjob.toml 熱重載排程（openab-schedule skill 用）；
     # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
     cron:
@@ -83,5 +87,39 @@ agents:
       sessionTtlHours: 24
     persistence:
       enabled: true
-      storageClass: cac-local   # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
+      storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
       size: 30Gi
+
+  genie:
+    command: claude-agent-acp
+    args: []
+    workingDir: /home/node
+    # openspec 裝在 PVC（npm prefix=/home/node/.npm-global，避開唯讀根碟）；
+    # PATH 加在最前面，讓 agent 與其 subprocess 都找得到 openspec 指令。
+    env:
+      PATH: "/home/node/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    discord:
+      enabled: true
+      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedUsers: []
+      allowBotMessages: "mentions"
+      trustedBotIds:
+        ["1521431781641818202", "1519868630064562278", "1522253638465093752"]
+    secretEnv:
+      - { name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN }
+      - {
+          name: JIRA_BASE_URL,
+          secretName: morty-jira,
+          secretKey: JIRA_BASE_URL,
+        }
+      - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
+    cron:
+      usercronEnabled: true
+      usercronPath: "cronjob.toml"
+    pool:
+      maxSessions: 5
+      sessionTtlHours: 24
+    persistence:
+      enabled: true
+      storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
+      size: 60Gi
