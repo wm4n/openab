@@ -6,7 +6,8 @@
 # ⚠️ 只更新「plugin 安裝」的 skill（openab-bot-skills、superpowers、skill-registry）。
 # ⚠️ Morty 的 skill-registry（jira-fetch 所在的 plugin）用 install 而非 update：
 #    這隻 plugin 之前漏裝，第一次跑要用 install 才裝得上；用 `|| true` 讓「已安裝」
-#    情況下的非零結束碼不會中斷腳本，之後重跑這支腳本也能藉由 install 撿漏。
+#    情況下的非零結束碼不會中斷腳本，之後重跑這支腳本也能藉由 install 撿漏。同樣道理
+#    套用在 genie 的 openab-bot-skills 上（它是全新 bot，第一次跑這支腳本時還沒裝過）。
 # ⚠️ Claude 端 `claude plugin update` 官方說明是「restart 才生效」；ACP 每次 Discord
 #    新 thread 都會起一個全新 session（新的 claude 行程），理論上開新 thread 就夠，
 #    不需要重啟 pod。如果新 thread 驗證後發現沒吃到新版，才需要
@@ -42,6 +43,13 @@ kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin install 
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
 echo
 
+echo "=== Genie (openab-claude-genie) ==="
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace add wm4n/skill-registry || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install openab-bot-skills@wm4n-skill-registry || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update openab-bot-skills@wm4n-skill-registry
+echo
+
 echo "=== Summer (openab-codex-summer) ==="
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade wm4n-skill-registry || true
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade superpowers-marketplace || true
@@ -51,5 +59,5 @@ kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove su
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add superpowers@superpowers-marketplace
 echo
 
-echo "全部更新完成。到 Discord 對 Rick / Morty / Summer 各開一條新 thread 再驗證；"
+echo "全部更新完成。到 Discord 對 Rick / Morty / Summer / Genie 各開一條新 thread 再驗證；"
 echo "若新 thread 驗證後發現還是舊版，才需要 kubectl rollout restart deployment/<name> -n cac。"
