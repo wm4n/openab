@@ -1,0 +1,11 @@
+# Local-only (untracked) — keeps `docker build .` context small.
+# The official CI builds from a clean checkout, so upstream has no .dockerignore.
+target/
+.git/
+.superpowers/
+docs/
+*.bundle
+*.tar
+*.tar.gz
+.DS_Store
+BOT_SETUP.md
