@@ -12,8 +12,8 @@
 ## C. Codex（Summer）skill 支援（spec §9 待驗）
 - [ ] Summer 容器能載入 change-review(-codex)；若不吃 filesystem skill，退回 AGENTS.md 內保留 review 流程（仍加 Layer 1+個性框架）。
 
-## D. 脈絡檔交付（方案 B：baseline + persona 組合）
-- [ ] 各容器 /home/node/CLAUDE.md（Summer 為 AGENTS.md）＝ engineer-baseline.md + 該 bot persona 組合結果；確認組合後含「共用基座 + 個性 + 署名表(該 bot 值) + 指路」且無重複、Claude Code 有載入。
+## D. 脈絡檔交付（v2 persona 檔為單一真相來源，不再組合 engineer-baseline.md）
+- [ ] 各容器 /home/node/CLAUDE.md（Summer 為 AGENTS.md）＝對應 bot 的 `<Name>-CLAUDE_v2.md`／`Summer-AGENTS_v2.md` 直接複製（見 `update-context.sh`），檔案本身已自含共用基座規則 + 個性 + 署名 + 指路，Claude Code 有載入。
 
 ## E. 端對端（沿用既有 K5 順序）
 - [x] Rick 容器 `openspec config list` 確認 workflows 同時含 `propose` 與 `new`/`ff`（見 K3S.md Phase B3-⑥ 的一次性 profile 切換；沒切過的話 `/opsx:new` 會不存在，feature-development 第一步就卡住）。（2026-07-24 已確認：兩組 workflow 都在清單裡）
