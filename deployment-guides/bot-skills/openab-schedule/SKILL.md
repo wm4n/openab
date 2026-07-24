@@ -1,22 +1,24 @@
 ---
 name: openab-schedule
-description: Use when a human asks the bot to run a task on a recurring schedule and report back (daily PR summary, weekly report, periodic alert scan...), or asks to create, modify, view, or disable a schedule. Not for one-time delayed reminders (that's /remind) or plain questions/code reading.
+description: Use whenever a human asks the bot to notify them or do something later — a one-time future reminder, a recurring report (daily PR summary, weekly report), a periodic alert scan, or any other cyclical/scheduled action — or asks to create, modify, view, or disable such a schedule. This is the only scheduling mechanism the bot may use, one-time requests included (see Iron Rules — never CronCreate/CronList/CronDelete/ScheduleWakeup, and never defer to /remind, which is human-only and never runs agent logic). Not for plain questions/code reading.
 ---
 
 # openab-schedule
 
 ## Overview
 
-Uses openab's built-in **usercron** to create recurring schedules: write a job into `~/.openab/cronjob.toml`. The scheduler polls the file's mtime every minute and hot-reloads it. When a job fires, openab injects its `message` as a **new prompt** — you act on it and post the result to the job's `channel`.
+Uses openab's built-in **usercron** to create schedules — recurring or one-time alike: write a job into `~/.openab/cronjob.toml`. The scheduler polls the file's mtime every minute and hot-reloads it. When a job fires, openab injects its `message` as a **new prompt** — you act on it and post the result to the job's `channel`.
 
-> ⚠️ **Never use `CronCreate`/`CronList`/`CronDelete`.** Those are Claude Code's own built-in, session-scoped scheduler (dies when the session ends, unrelated to openab's usercron, and does not actually deliver messages to Discord). Everything here means reading and writing the `~/.openab/cronjob.toml` file directly — never calling a scheduling tool.
+> ⚠️ **Never use `CronCreate`/`CronList`/`CronDelete`/`ScheduleWakeup`, or any other Claude-Code-native scheduling tool.** These belong to the harness's own session-scoped scheduler (dies when the session ends, unrelated to openab's usercron, and does not actually deliver messages to Discord) — a request that sounds like "schedule/remind/notify me" is never their job in this deployment, no matter how directly they seem to fit. Everything here means reading and writing the `~/.openab/cronjob.toml` file directly — never calling a scheduling tool.
+>
+> `/remind` is a **separate, human-only** slash command — bots are rejected if they try to invoke it, and even when a human uses it themselves it only tags someone at a fixed time, it never runs agent logic. Any request that needs the agent to actually do something later, one-time or recurring, belongs here via a usercron job — never `/remind`.
 
 ## Division of Responsibility
 
 - **You CAN** (no restart needed): create/modify/view/disable jobs in `~/.openab/cronjob.toml`. Editing this file hot-reloads within a minute.
 - **You CANNOT**: enable the usercron feature itself. That requires adding `[cron]` to `config.toml` and **restarting the container** — you can't read the live runtime config or restart yourself, so that's the human's job outside the container.
 
-> The only proof a schedule really fires is the ping test in step 4 — not this document, not any config you happen to read. Declaring "it's set up" right after writing the file is wrong.
+> The only proof a schedule really fires is the ping test in step 3 — not this document, not any config you happen to read. Declaring "it's set up" right after writing the file is wrong.
 
 ## Hard Gate — Confirm Before Writing Anything
 
@@ -33,7 +35,7 @@ Uses openab's built-in **usercron** to create recurring schedules: write a job i
 
 ### 1. Is usercron even enabled? Don't stall on this — the ping test is the only judge
 
-Go straight to step 3 (write the file). Use the step-4 ping as the sole signal: ping appears = enabled and the whole chain works; no ping = probably disabled, go ask a human to enable it. You usually can't read the live runtime config from inside the container, so don't burn time guessing paths.
+Go straight to step 2 (write the file). Use the step-3 ping as the sole signal: ping appears = enabled and the whole chain works; no ping = probably disabled, go ask a human to enable it. You usually can't read the live runtime config from inside the container, so don't burn time guessing paths.
 
 Only if you *happen* to be able to read the config (try `~/.openab/config.toml`, `/home/node/config.toml`, `/etc/openab/config.toml`) and it clearly shows `usercron_enabled = false` or no `[cron]` section at all, stop early and ask the human to add this to `config.toml` and redeploy (you can't edit the live config or restart yourself):
 
@@ -65,7 +67,7 @@ timezone = "Asia/Taipei"
 
 - `message` must be a **self-contained natural-language instruction** — when it fires, it's a brand-new turn's prompt; it must be able to work out "yesterday", what to say if there's no data, and what language to reply in, entirely on its own.
 - ⚠️ Don't bake shell, `date -d`, or crontab-style `%` escaping into `message`: `cronjob.toml` is plain TOML, not crontab, and the container's `date` (BSD vs GNU) isn't guaranteed. Leave date math to the agent that runs at fire time.
-- ⚠️ **One-off / "just run it once" requests**: cron has **no year field**. Even if you compute an exact minute/hour/day/month with `date` and put it in `schedule`, the job fires again next year on the same date and time — it is not truly one-time. Do **not** try to solve this with `disable_on_success = true` (invalid usage — see Common Mistakes). Correct approach: same as the `verify-ping` pattern in step 4 — create it, let it fire once, confirm the result, then **manually delete the job**. Don't expect it to stop itself.
+- ⚠️ **One-off / "just run it once" requests (including "remind me in N minutes" style asks)**: cron has **no year field**. Even if you compute an exact minute/hour/day/month with `date` and put it in `schedule`, the job fires again next year on the same date and time — it is not truly one-time. Do **not** try to solve this with `disable_on_success = true` (invalid usage — see Common Mistakes). Correct approach: same as the `verify-ping` pattern in step 3 — create it, let it fire once, confirm the result, then **manually delete the job**. Don't expect it to stop itself.
 
 ### 3. End-to-end test (the only trustworthy verification)
 
@@ -88,7 +90,44 @@ timezone = "Asia/Taipei"
 
 ### 4. Report back to the human
 
-State clearly: the real job's time/channel/content, that you verified it with a real ping, and that future changes (time, disable) go straight through you (you edit `cronjob.toml`, no restart needed).
+Once step 3's ping test passes, report back clearly — never just "it's set up":
+
+- **Exact fire date/time**, spelled out in the job's confirmed timezone — not the bare cron expression (e.g. "fires 2026-07-25 23:58 Asia/Taipei", not just "`*/5 * * * *`").
+- **Next fire date/time** — for a one-time job this is the same moment as above; for a recurring job, see the next bullet.
+- **For recurring jobs, the next 3 fire times** (see "Computing fire times" below) — lets the human sanity-check the schedule without doing cron math themselves.
+- **A one-line instruction summary** — paraphrase `message`, don't paste the whole string.
+- That you verified it with a real ping (step 3), and that future changes (time, disable, delete) go straight through you — no restart needed.
+
+#### Computing fire times
+
+Never eyeball a cron schedule against a clock in your head — that's the same class of mistake behind this skill's `ScheduleWakeup` incident (wrong tool, then a time reported without real computation). Actually compute each fire time in the job's confirmed timezone:
+
+- Prefer a scripting tool with real timezone/cron support if the container has one (e.g. `python3` with `zoneinfo` for timezone conversion) — check it's actually available before trusting its output.
+- If nothing reliable is available, reason through the cron fields by hand (minute → hour → day-of-month → month → day-of-week) against the current date in the confirmed timezone, and show your work rather than asserting a number.
+- This is your own reasoning for the human-facing report — don't bake it into `cronjob.toml` itself (see step 2's warning about shell/`date -d` in `message`).
+
+### 5. Disabling or deleting a job — report what stops
+
+When a human asks you to cancel, stop, disable, or remove a schedule:
+
+1. Read the file first; identify the exact job by `id`. If there's any ambiguity about which job they mean, ask — never guess.
+2. Apply what they asked: `enabled = false` to disable (keeps the block for later re-enabling), or remove the block entirely if they asked for a real delete.
+3. **Report back explicitly**: which job was disabled/deleted (its `id` and a one-line instruction summary) and what this cancels — e.g. "disabled `daily-merged-pr-summary`: this would otherwise have next fired 2026-07-28 09:00 Asia/Taipei (and every weekday after) — that won't happen now."
+
+Never silently disable or delete without telling the human what stopped.
+
+### 6. Listing all schedules — use a consistent table
+
+When asked to list current jobs, don't dump the raw TOML. Read `~/.openab/cronjob.toml` and present a table:
+
+| id | schedule | next run | channel | instruction |
+|---|---|---|---|---|
+| daily-merged-pr-summary | weekdays 9am (`0 9 * * 1-5`) | 2026-07-27 09:00 Asia/Taipei | 1490282656913559673 | Summarize yesterday's merged PRs... |
+
+- **schedule** — plain language first, raw cron expression in parens.
+- **next run** — computed per "Computing fire times" above, never guessed.
+- **instruction** — first line / first ~10 words of `message`, not the full text; mark truncation with `…`.
+- Include disabled jobs too, marked (e.g. prefix the `id` with `(disabled)`), so the human sees the full picture, not just active ones.
 
 ## Quick Reference
 
@@ -112,20 +151,26 @@ State clearly: the real job's time/channel/content, that you verified it with a 
 
 | Mistake | What happens | Fix |
 |---|---|---|
-| Using `CronCreate`/`CronList`/`CronDelete` | Wrong system entirely — session-scoped, dies with the session, never reaches Discord | Only ever read/write `~/.openab/cronjob.toml` |
+| Using `CronCreate`/`CronList`/`CronDelete`/`ScheduleWakeup` (or any other Claude-Code-native scheduler) | Wrong system entirely — session-scoped, dies with the session, never reaches Discord | Only ever read/write `~/.openab/cronjob.toml` |
+| Treating a one-time "remind me in N minutes" request as out of scope, or as `/remind`'s job | `/remind` is human-only (bots rejected) and never runs agent logic — the promised follow-up action never happens, and the human gets no notification at all | Any request needing the agent to notify or act later — one-time or recurring — belongs here, via a one-off usercron job (see step 2's one-off guidance), then manual delete once confirmed |
 | `channel` set to a thread ID | Every fire fails: `failed to create thread: Cannot execute action on this channel type` | `channel` = real channel ID; use `thread_id` alongside it to target a specific thread |
 | Claiming "it's set up" right after writing the file | No proof it actually fires — silent, invisible failure the human won't notice for days | Always run the step-3 ping test first |
 | Fabricating a ping reply (e.g. running `date` and typing a message that looks like a fire) | Looks like success, proves nothing — the real mechanism was never exercised | Only trust the exact `🕐 [sender_name]: message` format arriving as a standalone new message |
 | `disable_on_success = true` for a "run once" job | Not valid syntax; does not auto-disable anything; the job still fires again next year (no year field in cron) | Manually delete the job after confirming it fired once |
 | Guessing `channel`/`timezone`/`message` instead of asking | Job silently posts to the wrong place, wrong time, or can't act on vague instructions | Confirm all three (or an explicit safe default) before writing |
 | Overwriting the whole file with just the new job | Destroys everyone else's existing schedules | Read the file first, keep existing `[[jobs]]`, add/replace by `id` |
+| Disabling or deleting a job without telling the human what stopped | Human doesn't know if the automation they expected is gone, still running, or partially changed — may miss an expected notification or get a surprise one later | State which job (`id` + one-line summary) was disabled/deleted and its next-would-have-been fire time |
+| Dumping raw `cronjob.toml` content when asked to list jobs | Hard to scan, buries next-run timing in cron syntax, drowns the human in the full `message` text | Present a table: id / schedule (plain language + cron) / next run / channel / instruction summary (see step 6) |
 
 ## Iron Rules
 
-- Manage schedules only by reading/writing `~/.openab/cronjob.toml` — never `CronCreate`/`CronList`/`CronDelete`.
+- Manage schedules only by reading/writing `~/.openab/cronjob.toml` — never `CronCreate`/`CronList`/`CronDelete`/`ScheduleWakeup`/any other Claude-Code-native scheduler, and never by pointing the human at `/remind` when the request needs the agent to act.
 - Enabling usercron itself (config + restart) is not yours to do — say so plainly, never fake it.
 - Never tell the human "it's live" before the step-3 ping test passes with a real signal.
 - Read the existing file before writing; add/replace by `id`; never clobber someone else's job.
 - `channel` must be a human-confirmed real channel ID; `timezone` must always be explicit.
 - `message` must be a self-contained natural-language instruction — no baked-in shell or date logic.
 - Delete one-off test/one-time jobs by hand once confirmed — don't rely on `disable_on_success = true` to stop them.
+- When creating a job, report the exact confirmed fire time(s) — computed, never eyeballed — including the next 3 fire times for a recurring job.
+- When disabling or deleting a job, state which job it was and what future execution it cancels.
+- When listing jobs, present a table (id / schedule / next run / channel / instruction summary) — never dump raw TOML.
