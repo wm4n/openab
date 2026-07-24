@@ -209,6 +209,13 @@ EOF
 
 ⑥ Rick 專屬 — openspec：確認可用。`npm i -g` 會被 readonly rootfs 擋 → 建議 image 預裝，或裝到 HOME(PVC) 下。rollout 時確認（見疑難排解）。
 
+> **openspec profile 切換（一次性，Rick 專屬）**：`feature-development` skill 依規格明確程度分別會用到 `new`/`ff`（expanded workflow，不在預設 `core` profile 裡）與 `propose`（在 `core` 裡）。custom profile **不會自動繼承** core 的 `propose`/`apply`/`archive`，兩組要一起勾，否則切了 custom 反而失去 `propose`：
+> ```bash
+> kubectl exec -it <rick-pod> -n cac -- openspec config profile
+> # Workflows only → 勾選 propose, explore, new, continue, apply, ff, archive → 確認
+> ```
+> 這是每個容器一次性的全域設定（`~/.config/openspec`），設完後日後對任何新 repo 跑 `openspec init` 都會自動套用該 profile，不用每個 repo 重做。`kubectl exec <rick-pod> -n cac -- openspec config list` 可確認 workflows 同時含 `propose` 與 `new`/`ff`。
+
 **B4. 本機驗證（不碰 Discord）**——逐 pod：
 ```bash
 kubectl exec $POD -n cac -- sh -c '

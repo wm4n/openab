@@ -16,5 +16,7 @@
 - [ ] 各容器 /home/node/CLAUDE.md（Summer 為 AGENTS.md）＝ engineer-baseline.md + 該 bot persona 組合結果；確認組合後含「共用基座 + 個性 + 署名表(該 bot 值) + 指路」且無重複、Claude Code 有載入。
 
 ## E. 端對端（沿用既有 K5 順序）
+- [ ] Rick 容器 `openspec config list` 確認 workflows 同時含 `propose` 與 `new`/`ff`（見 K3S.md Phase B3-⑥ 的一次性 profile 切換；沒切過的話 `/opsx:new` 會不存在，feature-development 第一步就卡住）。
 - [ ] Morty 分析→人工閘門→@Rick→Rick openspec 開 PR→Morty+Summer change-review→clean→人類 merge，全程 mention 只在 handoff 行、無 bot 互 @ 迴圈。
+- [ ] 承上，分別驗證 Rick 的兩條 openspec 分支都能跑：(a) 收到 Morty 交棒的 spec → new→ff→apply→archive；(b) 人類跳過 Morty 直接口頭交代需求 → propose→apply→archive。
 - [ ] 隨手問答不觸發任何 handoff。

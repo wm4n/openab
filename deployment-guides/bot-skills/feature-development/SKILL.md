@@ -9,9 +9,13 @@ description: 當收到 Analyst 交棒的 branch 與 spec、或人類明確要求
 
 1. 若 repo 尚未 clone，先 clone。`git fetch`；checkout 那個 branch；讀 Analyst 的 design spec。
 2. 若該 repo 尚無 `openspec/`，先跑 `openspec init`。
-3. 跑 openspec（全程不 @mention 任何人）：
-   `/opsx:new "<依 spec 濃縮的描述> + 規格連結"` → `/opsx:apply`（一路做完、不中途等人）→ `/opsx:archive`
+3. 跑 openspec（全程不 @mention 任何人），依「規格是否已明確」二選一：
+   - **有明確 spec 可讀**(Analyst/Morty 交棒的 branch+spec，或人類已提供具體的 design spec/連結)：
+     `/opsx:new "<依 spec 濃縮的描述> + 規格連結>"` → `/opsx:ff`(補完剩下的 design/tasks artifact)→ `/opsx:apply`(一路做完、不中途等人)→ `/opsx:archive`
+   - **沒有明確 spec，只有人類一句話口頭需求**(非 Analyst/Morty 交棒，也沒有既有 design 文件)：
+     `/opsx:propose "<需求描述>"` → `/opsx:apply`(一路做完、不中途等人)→ `/opsx:archive`
    【archive 先做】收進正式 spec 後才開 PR。
+   > `new`/`ff`/`continue` 屬於 openspec 的 expanded workflow，不在預設 profile 裡。要兩條路都能走，須先跑過一次性的全域設定：`openspec config profile` 互動選單裡把 `propose`/`explore`/`new`/`continue`/`apply`/`ff`/`archive` 都勾起來(custom profile 不會自動繼承 core 預設的 propose/apply/archive，必須一起勾)。這是每個 Rick 容器一次性的設定，設完後日後對任何新 repo 跑 `openspec init` 都會自動套用，不用每個 repo 重做。如果指令不存在，先確認這步有沒有做過(見部署 README/K3S.md)。
 4. commit + push；用 `gh pr create` 開 PR。
 5. PR 建立完成後，才發一次 mention（只發這一次），@ 兩位 reviewer（環境變數
    `$HANDOFF_REVIEWER_MORTY`、`$HANDOFF_REVIEWER_SUMMER` 的值，原樣貼上）：
@@ -26,7 +30,7 @@ description: 當收到 Analyst 交棒的 branch 與 spec、或人類明確要求
 ## 收到 reviewer 的結果
 
 - **任一 reviewer 說 changes requested**：
-  針對意見【跑新一輪 /opsx 流程】（new→apply→archive），
+  針對意見【跑新一輪 /opsx 流程】(reviewer 意見本身就是明確 spec，走上面「有明確 spec」分支：new→ff→apply→archive)，
   push 進【同一個 PR】（同一 branch，累積 commits）。
   不要改已 archive 的舊 change。
   push 完成後才發一次 mention 重審（只發這一次），@ 兩位 reviewer（`$HANDOFF_REVIEWER_MORTY`、
