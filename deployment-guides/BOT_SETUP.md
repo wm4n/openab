@@ -645,6 +645,8 @@ kubectl exec deployment/openab-codex-summer -n cac -- rm -f /home/node/.codex/sk
 
 之後要更新 skill 內容，改 `deployment-guides/bot-skills/` 裡的檔案不再有作用（那份 clone 已經不是真相來源），要同步更新 `wm4n/skill-registry` repo 裡 `plugins/openab-bot-skills/skills/` 對應檔案、bump `plugin.json`/`marketplace.json` 版本號、push，再對每隻 bot 跑 `claude plugin marketplace update` / `codex plugin marketplace upgrade` + 重裝。
 
+⚠️ **2026-07-24 新增 `solo-bot-skills` plugin，別跟 `openab-bot-skills` 混裝**：`openab-bot-skills` 只給**接力型** bot（Rick/Morty/Summer，會互相 `@mention` 交棒）；獨立、不接力、自己一手包辦全流程的 bot（如 genie，見 K3S.md「未來加 agent」）要裝的是同一個 marketplace 底下**另一個**獨立 plugin `solo-bot-skills`（含 `solo-feature-pipeline`、`openab-schedule`）。兩者結構上分開維護，故意不共用同一包——避免接力型 bot 誤觸發「不假手其他 bot」的 solo 流程，或獨立型 bot 誤裝到只在多 bot 交棒情境才有意義的 `feature-development`/`requirement-analysis`/`change-review` 等 skill。裝法一樣是 `claude plugin install solo-bot-skills@wm4n-skill-registry`。
+
 ### K3. Rick(Claude@OrbStack Mac mini) — openspec 開發
 
 **角色：** 收到 Morty 的 spec → openspec propose→apply→archive → 推 PR → @Morty + @Summer。

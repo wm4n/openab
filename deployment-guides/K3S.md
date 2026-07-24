@@ -5,6 +5,8 @@
 > **策略**：混合——用官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty；`openab-codex`：Summer），同一 namespace `cac`（團隊共用 namespace，未來其他 CAC 專案也可共用；與這台 cluster 上既有的另一組 openab 部署 `mis-ai`〔跑在 `default`〕區隔開）。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 走 `kubectl exec` bootstrap**（＝ BOT_SETUP Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 把停機壓到近零。
 >
 > 設計依據：`docs/superpowers/specs/2026-07-20-k3s-migration-design.md`。values 檔在 `deployment-guides/k3s/`。
+>
+> **2026-07-24 更新**：已加入第 4 隻 bot（genie，`openab-claude` release，104corp 專案專用、獨立不接力）。本文標題與 Phase A-D 仍是原始三隻的遷移記錄；新增 agent 一律照 [未來加 agent](#未來加-agent) 章節走（該章節已按 genie 實測結果改寫）。
 
 ---
 
@@ -286,12 +288,74 @@ kubectl logs deploy/openab-claude-rick -n cac | grep -i discord   # 連線成功
 
 ## 未來加 agent
 
-依 seccomp 家族塞進對應 release：
+> 2026-07-24 實際加過第 4 隻（Claude 家族，代號 genie，104corp 專案專用、不跟其他 bot 接力）驗證過一輪，下面已按實測結果改寫；舊版「PVC 自動生成」的說法已經過時（那時還沒把 Rick/Morty/Summer 從 `local-path` 遷到靜態 `cac-local`，見 Phase A 的 storage 決策）。
 
-- **Claude 家族** → `values-openab-claude.yaml` 加 `agents.<name>` → `helm upgrade openab-claude`。
-- **Codex 家族** → `values-openab-codex.yaml` 加 `agents.<name>`（自動繼承 Unconfined）→ `helm upgrade openab-codex`。
+依 seccomp 家族塞進對應 release，新 agent key 全小寫、可含 `-`（不能開頭/結尾是 `-`）：
 
-`helm upgrade` 後新 pod + PVC 自動生成 → 對新 pod 跑一次 Phase B3 bootstrap（含它自己的 Discord app/token）。seccomp 坑不用再踩。
+- **Claude 家族** → `values-openab-claude.yaml` 加 `agents.<name>`。
+- **Codex 家族** → `values-openab-codex.yaml` 加 `agents.<name>`（自動繼承 Unconfined）。
+
+### 1. Discord Application
+
+新建 Application（Bot 分頁拿 token、開 **MESSAGE CONTENT INTENT**——忘記開這個會在 pod log 看到 `Discord rejected privileged intents`）、OAuth2 URL Generator 邀進 workspace、記下 bot user ID；要限制誰能 `@` 的話先建對應 Discord 角色拿 role ID（Part M）。
+
+### 2. 靜態 PV（`cac-local` 用 `no-provisioner`，PVC 不會自動長出 PV）
+
+**這步最容易漏，漏了 PVC 會卡 `Pending` 或（更糟）悄悄落到 `local-path` 佔用根碟。** 每個 agent 一顆，`claimRef` 精準指定 PVC 名稱（`<release>-<agentKey>`，見上方「維運對照」的部署名慣例）：
+
+```bash
+mkdir -p /data/william/openab/agent-<name>
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-cac-<name>
+spec:
+  capacity:
+    storage: <跟 values 的 persistence.size 一致，例如 60Gi>
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: cac-local
+  local:
+    path: /data/william/openab/agent-<name>
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: ["openab"]
+  claimRef:
+    namespace: cac
+    name: <release>-<name>   # 例如 openab-claude-genie
+EOF
+```
+
+### 3. values 檔加 agent 區塊 + 秘密檔加 token
+
+`persistence.storageClass` 一定要寫 `cac-local`（留空會退回叢集 default `local-path`，落根碟）。`values-secret-claude.yaml`（或 codex 版）的 `agents.<name>.discord.botToken` 也要加，這兩者是分開的檔案，漏了任一邊都會造成「pod 起得來但 Discord adapter 沒接上」（log 印 `discord=false`、`Error: no adapter configured`，即使另一邊看起來設對了）。
+
+若要跟 Rick/Morty/Summer 互相 `@mention` 接力，`env.HANDOFF_*` 也要在這步加（見 Part K2b）；完全獨立、不接力的 bot（如 genie）不需要。
+
+### 4. `helm upgrade`（不是 install，加進既有 release）
+
+```bash
+helm upgrade <openab-claude 或 openab-codex> ../../charts/openab -n cac -f <values 檔> -f <secret 檔>
+```
+
+**重啟互相獨立，已實測確認**：chart 的 `deployment.yaml` 對每個 agent 各自算自己的 `checksum/config`（`{{- range $name, $cfg := .Values.agents }}`），只要這次改動沒動到 Rick/Morty/Summer 自己的區塊，它們的 Deployment manifest 不會變、不會被連帶重啟。
+
+### 5. Bootstrap（比照 Phase B3，只跑在新 pod）
+
+- `kubectl exec -it ... -- claude`（或 `codex`）互動登入。
+- gh 登入：只服務單一帳號的 repo（如 genie 只碰 104corp）就只登入那個帳號，不用比照 Rick/Morty/Summer 走雙帳號 + `repo-identity` skill。
+- 若該 agent 要用 openspec：`npm config set prefix /home/node/.npm-global && npm install -g @fission-ai/openspec@latest`，`values` 加 `env.PATH` 指到 `~/.npm-global/bin`（見疑難排解）；要 `/opsx:new`/`/opsx:ff` 這類 expanded workflow 指令，另外 `openspec config profile` 切換 + `openspec update`。
+- 裝 skill plugin：**先決定這隻 bot 是「接力型」還是「獨立型」，兩者裝不同 plugin，不要混裝**：
+  - 接力型（會跟其他 bot `@mention` 交棒）→ `claude plugin install openab-bot-skills@wm4n-skill-registry`。
+  - 獨立型（自己一手包辦，不跟其他 bot 互動）→ `claude plugin install solo-bot-skills@wm4n-skill-registry`。
+  - 兩個 plugin 刻意分開維護（`wm4n/skill-registry`），不是同一包裝好靠 persona 文件叫它「不要用」——結構上隔開，ACP 的語意比對才不會選錯（例如獨立型 bot 誤觸發 `feature-development`，或接力型 bot 誤觸發 `solo-feature-pipeline`）。
+- 寫 persona：新建 `<Name>-CLAUDE_v2.md`（或 Codex 用 AGENTS.md），`cat` 進 `/home/node/CLAUDE.md`。
+- 全部裝完後跑一次 `deployment-guides/k3s/update-context.sh` / `update-skills.sh`，把新 bot 也納入固定的更新腳本。
 
 ---
 
@@ -304,5 +368,12 @@ kubectl logs deploy/openab-claude-rick -n cac | grep -i discord   # 連線成功
 | 雪花 ID 被 chart 拒（`mangled ID`） | values 用了數字而非字串 | 所有 ID 用引號字串，或 `--set-string` |
 | gh `restart 後消失` | 登入時非 node / PVC 沒持久 / env 有裸 `GH_TOKEN` | 以 node 登入；確認 PVC 掛 `/home/node`；別設裸 `GH_TOKEN` |
 | Rick `npm i -g openspec` 失敗（readonly rootfs） | `containerSecurityContext.readOnlyRootFilesystem: true` 擋寫 `/usr/lib` | 改 image 預裝 openspec，或 `npm config set prefix /home/node/.npm-global` 裝到 PVC 並把 `~/.npm-global/bin` 加進 PATH |
-| PVC Pending | storageClass 名不符 | 單節點 k3s 用內建 `local-path`；values 的 `persistence.storageClass` 留空即用 default |
+| PVC Pending（新 bot，用 `cac-local`） | 忘記手動建對應的靜態 PV（`cac-local` 是 `no-provisioner`，不會自動生成） | 見「未來加 agent」步驟 2，先建 PV 且 `claimRef` 指到正確 PVC 名稱 |
+| PVC Pending（舊 default storageClass） | `local-path`（k3s 內建 dynamic）名不符或未設 | 這台叢集慣例已改用 `cac-local`（見 Phase A），非本 runbook 情境才用內建 default |
+| `helm upgrade` 報 PVC spec immutable（`cannot patch ... StorageClassName`） | 這個 PVC 當初用了錯的 storageClass 建立（如誤落 `local-path`），PVC spec 綁定後除容量外都不可變 | 沒有原地修正的辦法：`kubectl delete pvc <name> -n cac`（沒有寶貴資料就直接刪，新 bot 通常沒有）→ 重新 `helm upgrade` 讓它用正確 storageClass 重建 |
+| 靜態 PV 一直 `Pending`、`kubectl get pv` 顯示該 PV 是 `Released` 不是 `Available` | PV 曾經綁定過又被解除（例如上一步刪掉了誤建的 PVC），`Retain` policy 不會自動變回 `Available` | `kubectl patch pv <pv名> -p '{"spec":{"claimRef": null}}'`，清掉舊 claimRef 讓它變 `Available`，會自動被等待中的 PVC 綁走 |
+| `kubectl delete pvc` 指令卡住不動 | PVC 有 `pvc-protection` finalizer，還有 pod 在用它 | Ctrl+C 中斷（不影響，已標記 Terminating）→ `kubectl delete pod <pod> -n cac --force --grace-period=0` 斷開 → PVC 幾秒內自動真的刪除 |
+| pod crash，`kubectl logs --previous` 抓不到（`unable to retrieve container logs`） | crash 太快，containerd 已經清掉該次 container 的 log | 改用 `kubectl logs deploy/<name> -n cac -c openab --tail=200`（不加 `--previous`，可能還沒被清）；還是抓不到就 `kubectl logs -f` 即時盯著看下次崩潰，或看 `kubectl describe pod ... \| grep -A15 "Last State:"` 的 Exit Code |
+| Discord adapter 沒接上（log `discord=false`、`Error: no adapter configured`），即使 secret 看起來設對了 | `values-secret*.yaml` 的 `botToken` 沒接上、或 `discord.enabled` 實際沒生效——直接查 `kubectl get configmap <name> -n cac -o yaml` 確認渲染出的 `config.toml` 真的有 `[discord]` 區塊，比猜測可靠 | 確認兩個檔案（agent values + secret values）都對這個 agent 名字設對，`helm upgrade` 兩個 `-f` 都要帶到 |
+| pod 連上 Discord 但立刻報 `Discord rejected privileged intents` | Discord Developer Portal 忘記開 **MESSAGE CONTENT INTENT** | Bot 分頁 → Privileged Gateway Intents → 開啟 → `kubectl rollout restart deploy/<name> -n cac`（不用 helm upgrade）|
 | 兩隻 bot 同一 token 都回應/互踢 | Mac mini 與 k3s 同 token 同時連線 | cutover 時先停 Mac mini（Phase C1）再移除 k3s sleep（C2） |
