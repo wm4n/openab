@@ -288,8 +288,25 @@ kubectl logs deploy/openab-claude-rick -n cac | grep -i discord   # 連線成功
 | Discord/JIRA token | 改 `values-secret*.yaml` / secret → upgrade / 重啟 | 要 |
 | CLAUDE.md/AGENTS.md、skill | `kubectl exec` git pull + 重 cat（Part N） | 不用，開新 thread |
 | `cronjob.toml` 排程（Part L） | `kubectl exec` 改 PVC 上的檔 | 不用，熱重載 |
+| Claude Code 用的 model（`~/.claude/settings.json`） | `kubectl exec` 用 `node -e` merge 寫入 `model` 欄位（見下方） | 不用，開新 thread |
 
 > 部署名慣例：`<release>-<agentKey>` → `openab-claude-rick`、`openab-claude-morty`、`openab-codex-summer`。
+
+> **切換 Claude Code 用的 model（2026-07-27 實測確認）**：openab 原生 `/models` 選單對 `claude-code`/`codex` 這兩種 backend 不生效（ACP 沒有回傳 `configOptions`，見 `docs/slash-commands.md`）；Discord 對 bot 打 `@Bot /model claude-sonnet-4` 這種「轉發進 ACP session 當 prompt」的方式**只在當前 session 有效、不會持久化**（實測 `settings.json` 內容沒變化）。正解是直接改該 bot 的 `~/.claude/settings.json`：
+>
+> ```bash
+> kubectl exec -i deployment/openab-claude-<name> -n cac -- node -e '
+> const fs = require("fs");
+> const path = "/home/node/.claude/settings.json";
+> let settings = {};
+> try { settings = JSON.parse(fs.readFileSync(path, "utf8")); } catch (e) {}
+> settings.model = "claude-opus-4-8";   // 或別名 "opus"/"sonnet"/"haiku"
+> fs.writeFileSync(path, JSON.stringify(settings, null, 2));
+> console.log(JSON.stringify(settings, null, 2));
+> '
+> ```
+>
+> 用 `node -e` 而非 `jq`：這批 image 沒裝 `jq`，且多數容器 `readOnlyRootFilesystem`，`apt`/`apk install` 大概率失敗（見疑難排解表 Rick 的 openspec 那條）；`node` 是 base image 本來就有的，免安裝。`model` 欄位是**session 啟動時讀一次**，改完不影響正在跑的 session，要開新 thread 才套用（跟改 CLAUDE.md/skill 同一套邏輯，不需要 `kubectl rollout restart`）。Codex（Summer）的等效設定尚未驗證，需另外確認 `~/.codex/config.toml` 是否有對應欄位。
 
 ---
 
