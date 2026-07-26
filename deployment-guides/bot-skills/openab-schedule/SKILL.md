@@ -20,16 +20,36 @@ Uses openab's built-in **usercron** to create schedules — recurring or one-tim
 
 > The only proof a schedule really fires is the ping test in step 3 — not this document, not any config you happen to read. Declaring "it's set up" right after writing the file is wrong.
 
-## Hard Gate — Confirm Before Writing Anything
+## Hard Gate — Resolve Every Field, Then Confirm With One Summary Card
 
-**`channel`, `timezone`, and `message` must be confirmed with the human — or given a safe explicit default — before you write to `cronjob.toml`.** Never guess these. Prefer asking again over inventing a value.
+Before writing to `cronjob.toml`, resolve **all** of the fields below — parse whatever the human specified, fill the rest with defaults — then post them **together as a single summary card** and wait for the human to confirm. Never write the file first and explain after; never confirm one field at a time as separate messages; never omit a field from the card because it "obviously" has a default.
 
-1. **`channel`** — must be a real **channel ID**, not a thread ID. openab always tries to open a **new thread under `channel`** when a job fires; Discord rejects opening a thread under another thread (`failed to create thread: Cannot execute action on this channel type`). You have no reliable way to resolve "the current channel" to an ID from inside the container — ask the human to right-click the channel → Copy Channel ID (needs Developer Mode).
-   - If the human just says "this channel" and an existing job already uses some channel ID, you may *assume* it's the same one — but confirm once before reusing it.
-   - To post into an **existing thread** instead of a new one, keep `channel` as the real channel ID and additionally set `thread_id` to that thread's ID (both fields together, not either/or).
-2. **`timezone`** — unset defaults to **UTC**, off by 8 hours from Taiwan time. Confirm with the human (usually `Asia/Taipei` for this deployment).
-3. **Schedule semantics** — spell out your interpretation and confirm it: `*` for day-of-week means "every day"; `1-5` means "weekdays". E.g. "you said daily at 18:00 = `0 18 * * *` (weekends included), correct?"
-4. **`message`** — must be self-contained: confirm target repo/data scope and the definition of "success/failure" (e.g. which repo a CI check targets, whether "failing" includes cancelled/timed-out runs).
+```
+📋 排程確認
+- 執行內容：<self-contained instruction — the full deferred action, not just a ping>
+- 通知時間：<computed absolute next fire — date, weekday, time>
+- 時區：<IANA timezone>
+- 通知頻道：<channel name>（<channel ID>）<"（預設）" if you picked it, not the human>
+- 重複：<"不重複（一次性）" or the recurring pattern in plain language + raw cron>
+- 顯示名稱：<sender_name>
+- 討論串：<"開新討論串" or "沿用目前討論串">
+
+以上正確嗎？
+```
+
+Resolve each field like this:
+
+1. **執行內容 (`message`)** — the entire self-contained instruction for whatever should happen at fire time, including any lookup/research the human asked for. ⚠️ If the request bundles a delayed notification with work to do (e.g. "remind me in 5 min, then list my Jira tickets"), that work belongs entirely in this field — don't do it now and leave this as a bare "time's up" ping.
+2. **通知時間 / 重複 (`schedule`)** — compute the real next fire time yourself, never eyeball it; state one-time vs. recurring, and for recurring, the plain-language pattern plus the raw cron expression.
+3. **時區 (`timezone`)** — never leave unstated; default `Asia/Taipei` for this deployment. Unset defaults to UTC — 8 hours off.
+4. **通知頻道 (`channel`)** — must be a real **channel ID**, not a thread ID (Discord rejects opening a thread under another thread: `failed to create thread: Cannot execute action on this channel type`). Never silently default to "wherever this conversation is happening", and never leave it off the card.
+   - If the bot is allowed in more than one channel and one is clearly purpose-matched to the request (e.g. a notification/reminder ask and a channel named `*-notify` exists), you may default to it — but the card must still show it marked `（預設）` so the human can veto.
+   - If it isn't obvious which channel fits, don't guess at all — ask directly before building the card.
+   - If reusing an existing job's channel because the human said "this channel", confirm once before reusing it.
+5. **顯示名稱 (`sender_name`)** — a short label shown in the fire context (`🕐 [sender_name]: message`); auto-generate one from the instruction if not given, but still show it in the card.
+6. **討論串 (`thread_id`)** — default is a **new thread** under `channel` (openab's normal behavior); only reuse the current/an existing thread if the human asked for that. State which one explicitly — never decide this silently. To target an existing thread, set both `channel` (real channel ID) and `thread_id` together.
+
+Post the card, wait for confirmation, and only then proceed to step 2. If the human corrects anything, update and re-show the whole card — don't silently patch one field and proceed.
 
 ## Steps
 
@@ -45,7 +65,7 @@ usercron_enabled = true
 usercron_path = "cronjob.toml"
 ```
 
-### 2. Write the job — read the existing file first, never clobber someone else's schedule
+### 2. Write the job — only after the summary card is confirmed; read the existing file first, never clobber someone else's schedule
 
 ```bash
 mkdir -p ~/.openab
@@ -161,6 +181,10 @@ When asked to list current jobs, don't dump the raw TOML. Read `~/.openab/cronjo
 | Overwriting the whole file with just the new job | Destroys everyone else's existing schedules | Read the file first, keep existing `[[jobs]]`, add/replace by `id` |
 | Disabling or deleting a job without telling the human what stopped | Human doesn't know if the automation they expected is gone, still running, or partially changed — may miss an expected notification or get a surprise one later | State which job (`id` + one-line summary) was disabled/deleted and its next-would-have-been fire time |
 | Dumping raw `cronjob.toml` content when asked to list jobs | Hard to scan, buries next-run timing in cron syntax, drowns the human in the full `message` text | Present a table: id / schedule (plain language + cron) / next run / channel / instruction summary (see step 6) |
+| Silently defaulting `channel` to "wherever this conversation is happening" when more than one channel is available (e.g. a dedicated `*-notify` channel exists) | Schedule fires into the wrong channel with no new thread there; the human has to notice and correct it after the fact | Ask which channel to use whenever more than one is plausible — never assume "this channel" is right just because it's convenient |
+| Performing the requested action immediately, then writing a generic "time's up" ping as `message` | The action lands at the wrong time (now, instead of when the human asked for it) and the actual fire event carries no real content | Put the full self-contained instruction for the deferred action into `message` — your immediate reply only confirms the schedule, it doesn't do the work early |
+| Confirming fields one at a time in separate messages, or skipping straight to writing without a summary card | Slower back-and-forth, and a wrong field is easy to miss when it isn't shown alongside everything else | Resolve every field first, post ONE structured summary card (see Hard Gate), wait for confirmation |
+| Omitting `sender_name` or `thread_id` from the confirmation card because they "obviously" have defaults | Human never sees (and can't veto) that a new thread will be created, or what label the schedule shows under | Always show every field in the card, including ones you defaulted yourself |
 
 ## Iron Rules
 
@@ -174,3 +198,6 @@ When asked to list current jobs, don't dump the raw TOML. Read `~/.openab/cronjo
 - When creating a job, report the exact confirmed fire time(s) — computed, never eyeballed — including the next 3 fire times for a recurring job.
 - When disabling or deleting a job, state which job it was and what future execution it cancels.
 - When listing jobs, present a table (id / schedule / next run / channel / instruction summary) — never dump raw TOML.
+- Never default `channel` to "wherever this conversation is happening" — ask when more than one channel is plausible, especially if one is purpose-named for notifications.
+- If the human's request bundles a delayed notification with work to do, put that work into `message` to run at fire time — never do it immediately and leave `message` as a bare ping.
+- Resolve every field and present them as a single confirmation card before writing — never write first, never confirm field-by-field, never omit a field because it has an obvious default.
