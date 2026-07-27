@@ -27,6 +27,7 @@ Before writing to `cronjob.toml`, resolve **all** of the fields below — parse 
 ```
 📋 排程確認
 - 執行內容：<self-contained instruction — the full deferred action, not just a ping>
+- 提及：<"<@USER_ID>（<name>，預設 mention 提出請求的人）" or "不 mention 任何人">
 - 通知時間：<computed absolute next fire — date, weekday, time>
 - 時區：<IANA timezone>
 - 通知頻道：<channel name>（<channel ID>）<"（預設）" if you picked it, not the human>
@@ -40,14 +41,19 @@ Before writing to `cronjob.toml`, resolve **all** of the fields below — parse 
 Resolve each field like this:
 
 1. **執行內容 (`message`)** — the entire self-contained instruction for whatever should happen at fire time, including any lookup/research the human asked for. ⚠️ If the request bundles a delayed notification with work to do (e.g. "remind me in 5 min, then list my Jira tickets"), that work belongs entirely in this field — don't do it now and leave this as a bare "time's up" ping.
-2. **通知時間 / 重複 (`schedule`)** — compute the real next fire time yourself, never eyeball it; state one-time vs. recurring, and for recurring, the plain-language pattern plus the raw cron expression.
-3. **時區 (`timezone`)** — never leave unstated; default `Asia/Taipei` for this deployment. Unset defaults to UTC — 8 hours off.
-4. **通知頻道 (`channel`)** — must be a real **channel ID**, not a thread ID (Discord rejects opening a thread under another thread: `failed to create thread: Cannot execute action on this channel type`). Never silently default to "wherever this conversation is happening", and never leave it off the card.
+2. **提及 (mention)** — the fired turn has **zero memory** of this conversation (it's a brand-new prompt), so any @mention must be **baked into `message` itself as literal Discord mention syntax** (`<@USER_ID>`) at confirmation time — it cannot be reconstructed later.
+   - Default: mention the person who made the request. Resolve their Discord user ID from the same message context/metadata you already use to read the timestamp — don't guess, and never write a plain-text placeholder like `@william`; that never renders as a real ping.
+   - If you can't find a reliable ID in context, ask the human to right-click their name → Copy User ID rather than omitting the mention or faking it.
+   - A personal one-time reminder defaults to mentioning the requester; a recurring report to a shared/team channel defaults to **no** mention unless the human asks for one.
+   - Embed the resolved mention literally inside the `message` field text (e.g. "`<@1234567890> time's up! ...`") — the fired turn only has to say what's already written, never invent it.
+3. **通知時間 / 重複 (`schedule`)** — compute the real next fire time yourself, never eyeball it; state one-time vs. recurring, and for recurring, the plain-language pattern plus the raw cron expression.
+4. **時區 (`timezone`)** — never leave unstated; default `Asia/Taipei` for this deployment. Unset defaults to UTC — 8 hours off.
+5. **通知頻道 (`channel`)** — must be a real **channel ID**, not a thread ID (Discord rejects opening a thread under another thread: `failed to create thread: Cannot execute action on this channel type`). Never silently default to "wherever this conversation is happening", and never leave it off the card.
    - If the bot is allowed in more than one channel and one is clearly purpose-matched to the request (e.g. a notification/reminder ask and a channel named `*-notify` exists), you may default to it — but the card must still show it marked `（預設）` so the human can veto.
    - If it isn't obvious which channel fits, don't guess at all — ask directly before building the card.
    - If reusing an existing job's channel because the human said "this channel", confirm once before reusing it.
-5. **顯示名稱 (`sender_name`)** — a short label shown in the fire context (`🕐 [sender_name]: message`); auto-generate one from the instruction if not given, but still show it in the card.
-6. **討論串 (`thread_id`)** — default is a **new thread** under `channel` (openab's normal behavior); only reuse the current/an existing thread if the human asked for that. State which one explicitly — never decide this silently. To target an existing thread, set both `channel` (real channel ID) and `thread_id` together.
+6. **顯示名稱 (`sender_name`)** — a short label shown in the fire context (`🕐 [sender_name]: message`); auto-generate one from the instruction if not given, but still show it in the card.
+7. **討論串 (`thread_id`)** — default is a **new thread** under `channel` (openab's normal behavior); only reuse the current/an existing thread if the human asked for that. State which one explicitly — never decide this silently. To target an existing thread, set both `channel` (real channel ID) and `thread_id` together.
 
 Post the card, wait for confirmation, and only then proceed to step 2. If the human corrects anything, update and re-show the whole card — don't silently patch one field and proceed.
 
@@ -185,6 +191,7 @@ When asked to list current jobs, don't dump the raw TOML. Read `~/.openab/cronjo
 | Performing the requested action immediately, then writing a generic "time's up" ping as `message` | The action lands at the wrong time (now, instead of when the human asked for it) and the actual fire event carries no real content | Put the full self-contained instruction for the deferred action into `message` — your immediate reply only confirms the schedule, it doesn't do the work early |
 | Confirming fields one at a time in separate messages, or skipping straight to writing without a summary card | Slower back-and-forth, and a wrong field is easy to miss when it isn't shown alongside everything else | Resolve every field first, post ONE structured summary card (see Hard Gate), wait for confirmation |
 | Omitting `sender_name` or `thread_id` from the confirmation card because they "obviously" have defaults | Human never sees (and can't veto) that a new thread will be created, or what label the schedule shows under | Always show every field in the card, including ones you defaulted yourself |
+| Writing `message` with plain-text "notify them" / "@name" instead of baking in real `<@USER_ID>` mention syntax | The fired turn has zero memory of who asked — it can't invent a real mention, so the notification never actually pings anyone | Resolve the requester's Discord user ID at confirmation time and embed the literal `<@ID>` mention inside `message` itself |
 
 ## Iron Rules
 
@@ -201,3 +208,4 @@ When asked to list current jobs, don't dump the raw TOML. Read `~/.openab/cronjo
 - Never default `channel` to "wherever this conversation is happening" — ask when more than one channel is plausible, especially if one is purpose-named for notifications.
 - If the human's request bundles a delayed notification with work to do, put that work into `message` to run at fire time — never do it immediately and leave `message` as a bare ping.
 - Resolve every field and present them as a single confirmation card before writing — never write first, never confirm field-by-field, never omit a field because it has an obvious default.
+- If a fire should ping someone, resolve their Discord user ID at confirmation time and bake the literal `<@ID>` mention into `message` — never leave "notify them" as plain text for the fired turn to guess.
