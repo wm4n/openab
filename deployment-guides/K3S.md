@@ -373,6 +373,7 @@ helm upgrade <openab-claude 或 openab-codex> ../../charts/openab -n cac -f <val
 
 - `kubectl exec -it ... -- claude`（或 `codex`）互動登入。
 - gh 登入：只服務單一帳號的 repo（如 genie 只碰 104corp）就只登入那個帳號，不用比照 Rick/Morty/Summer 走雙帳號 + `repo-identity` skill。
+  - **2026-08-04 實例（genie 換帳號）**：genie 目前使用團隊共用帳號 `104cac`（原為使用者個人的公司帳號 `cac-william`）。換帳號走 `kubectl exec` 進 pod：`gh auth logout --hostname github.com --user <舊帳號>` → `gh auth login --hostname github.com`（互動選項貼上新 PAT）→ `gh auth setup-git`，不走 secretEnv／K8s Secret（單帳號模式維持不變）。設計與驗證清單見 `docs/superpowers/specs/2026-08-04-genie-github-account-switch-design.md`。
 - 若該 agent 要用 openspec：`npm config set prefix /home/node/.npm-global && npm install -g @fission-ai/openspec@latest`，`values` 加 `env.PATH` 指到 `~/.npm-global/bin`（見疑難排解）；要 `/opsx:new`/`/opsx:ff` 這類 expanded workflow 指令，另外 `openspec config profile` 切換 + `openspec update`。
 - 裝 skill plugin：**先決定這隻 bot 是「接力型」還是「獨立型」，兩者裝不同 plugin，不要混裝**：
   - 接力型（會跟其他 bot `@mention` 交棒）→ `claude plugin install openab-bot-skills@wm4n-skill-registry`。
