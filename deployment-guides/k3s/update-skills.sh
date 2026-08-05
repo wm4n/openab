@@ -33,9 +33,14 @@
 #    product-context skill（產品登錄表脈絡解析）。這個 repo 是 **104corp 私有 repo**，
 #    `claude/codex plugin marketplace add` 走 git clone，需要當下 pod 內生效的 gh
 #    帳號對這個 repo 有讀權限——Rick/Morty/Summer 是雙帳號（wm4n + cac-william），
-#    執行前務必 `gh auth switch --user cac-william`（同 Part F2「選帳號」原則，別讓
-#    上一個任務切成 wm4n 時卡在這步）；genie 現在是單帳號 104cac，需確認 104cac
-#    對這個 repo 有 collaborator 權限，否則這幾行會失敗。
+#    genie 現在是單帳號 104cac。因此每隻 bot 的 block 開頭都先跑
+#    `gh auth switch --hostname github.com --user <該用的帳號>`（Rick/Morty/Summer
+#    切 cac-william，genie 切 104cac），確保後面所有 marketplace/plugin 指令都
+#    在正確帳號底下執行，不靠操作者手動切、也不靠上一個任務留下的 active 帳號
+#    （2026-08-05 實測：Rick 的 active 帳號被上一個任務留在 wm4n，導致
+#    `marketplace add` 回 404 "Repository not found"，才補上這步）。這行沒加
+#    `|| true`：帳號真的不存在／未登入時應該讓腳本立刻停下來，而不是悶著頭
+#    往下跑到更難懂的 "Repository not found"。
 # ⚠️ marketplace add 用 `|| true`：四隻都是第一次加這個 marketplace，之後重跑腳本
 #    「已加過」會回非零結束碼，忽略即可（跟既有 skill-registry 的加法一致）。
 # ⚠️ marketplace add **必須用完整 https:// URL**，不能用 `owner/repo` 簡寫：簡寫會被
@@ -49,6 +54,7 @@ set -euo pipefail
 NS=cac
 
 echo "=== Rick (openab-claude-rick) ==="
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- gh auth switch --hostname github.com --user cac-william
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update claude-plugins-official || true
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update openab-bot-skills@wm4n-skill-registry
@@ -62,6 +68,7 @@ kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update te
 echo
 
 echo "=== Morty (openab-claude-morty) ==="
+kubectl exec "deployment/openab-claude-morty" -n "$NS" -- gh auth switch --hostname github.com --user cac-william
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace update claude-plugins-official || true
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update openab-bot-skills@wm4n-skill-registry
@@ -78,6 +85,7 @@ kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update t
 echo
 
 echo "=== Genie (openab-claude-genie) ==="
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- gh auth switch --hostname github.com --user 104cac
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace add wm4n/skill-registry || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install solo-bot-skills@wm4n-skill-registry || true
@@ -91,6 +99,7 @@ kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update t
 echo
 
 echo "=== Summer (openab-codex-summer) ==="
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- gh auth switch --hostname github.com --user cac-william
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade wm4n-skill-registry || true
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade superpowers-marketplace || true
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove openab-bot-skills@wm4n-skill-registry || true
