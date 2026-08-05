@@ -27,6 +27,17 @@
 #    逾時／網路不穩，在 set -e 下會讓整支腳本中斷、後面的 bot 都更新不到。一律指名
 #    只更新真正用到的 marketplace，並加 `|| true`：暫時性網路問題不該卡死整支腳本，
 #    頂多這次沒刷新到最新 snapshot，下次重跑就好。
+# ⚠️ 2026-08-05 新增 `team-bot@cac-plugins`（來源 104corp/104cac-claude-marketplace，
+#    marketplace 名稱是 marketplace.json 裡的 "cac-plugins"，跟 repo 名不同，同
+#    wm4n/skill-registry → wm4n-skill-registry 的既有慣例）：四隻 bot 都裝，提供
+#    product-context skill（產品登錄表脈絡解析）。這個 repo 是 **104corp 私有 repo**，
+#    `claude/codex plugin marketplace add` 走 git clone，需要當下 pod 內生效的 gh
+#    帳號對這個 repo 有讀權限——Rick/Morty/Summer 是雙帳號（wm4n + cac-william），
+#    執行前務必 `gh auth switch --user cac-william`（同 Part F2「選帳號」原則，別讓
+#    上一個任務切成 wm4n 時卡在這步）；genie 現在是單帳號 104cac，需確認 104cac
+#    對這個 repo 有 collaborator 權限，否則這幾行會失敗。
+# ⚠️ marketplace add 用 `|| true`：四隻都是第一次加這個 marketplace，之後重跑腳本
+#    「已加過」會回非零結束碼，忽略即可（跟既有 skill-registry 的加法一致）。
 
 set -euo pipefail
 
@@ -39,6 +50,10 @@ kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update op
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update superpowers@claude-plugins-official
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install skill-registry@wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace add 104corp/104cac-claude-marketplace || true
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update cac-plugins || true
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install team-bot@cac-plugins || true
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update team-bot@cac-plugins
 echo
 
 echo "=== Morty (openab-claude-morty) ==="
@@ -51,6 +66,10 @@ kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update s
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace add wm4n/skill-registry || true
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin install skill-registry@wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
+kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace add 104corp/104cac-claude-marketplace || true
+kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace update cac-plugins || true
+kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin install team-bot@cac-plugins || true
+kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update team-bot@cac-plugins
 echo
 
 echo "=== Genie (openab-claude-genie) ==="
@@ -60,6 +79,10 @@ kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install 
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update solo-bot-skills@wm4n-skill-registry
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install skill-registry@wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace add 104corp/104cac-claude-marketplace || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace update cac-plugins || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install team-bot@cac-plugins || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update team-bot@cac-plugins
 echo
 
 echo "=== Summer (openab-codex-summer) ==="
@@ -71,6 +94,10 @@ kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove su
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add superpowers@superpowers-marketplace
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove skill-registry@wm4n-skill-registry || true
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add skill-registry@wm4n-skill-registry
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace add 104corp/104cac-claude-marketplace || true
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade cac-plugins || true
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove team-bot@cac-plugins || true
+kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add team-bot@cac-plugins
 echo
 
 echo "全部更新完成。到 Discord 對 Rick / Morty / Summer / Genie 各開一條新 thread 再驗證；"
