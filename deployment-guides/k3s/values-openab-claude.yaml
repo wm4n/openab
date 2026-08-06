@@ -119,6 +119,9 @@ agents:
     pool:
       maxSessions: 5
       sessionTtlHours: 24
+      # solo-feature-pipeline 一路 openspec new→ff→apply→review→archive→PR 不中途停，
+      # 單輪 prompt 可能跑很久；預設 1800s 撞過(Agent exceeded hard timeout)，拉到 4hr。
+      promptHardTimeoutSecs: 14400
     persistence:
       enabled: true
       storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path

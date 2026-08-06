@@ -79,6 +79,13 @@ agents:
     #   pool:
     #     maxSessions: 10
     #     sessionTtlHours: 24
+    #     # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+    #     # set in Rust when omitted here). Raise per-agent for bots that run long
+    #     # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+    #     # promptHardTimeoutSecs: 1800
+    #     # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+    #     # or the ceiling only fires on the next tick (default 30).
+    #     # livenessCheckSecs: 30
     #   reactions:
     #     enabled: true
     #     removeAfterReply: false
@@ -114,6 +121,13 @@ agents:
     #   pool:
     #     maxSessions: 10
     #     sessionTtlHours: 24
+    #     # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+    #     # set in Rust when omitted here). Raise per-agent for bots that run long
+    #     # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+    #     # promptHardTimeoutSecs: 1800
+    #     # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+    #     # or the ceiling only fires on the next tick (default 30).
+    #     # livenessCheckSecs: 30
     #   reactions:
     #     enabled: true
     #     removeAfterReply: false
@@ -140,6 +154,13 @@ agents:
     #   pool:
     #     maxSessions: 10
     #     sessionTtlHours: 24
+    #     # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+    #     # set in Rust when omitted here). Raise per-agent for bots that run long
+    #     # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+    #     # promptHardTimeoutSecs: 1800
+    #     # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+    #     # or the ceiling only fires on the next tick (default 30).
+    #     # livenessCheckSecs: 30
     #   reactions:
     #     enabled: true
     #     removeAfterReply: false
@@ -174,6 +195,13 @@ agents:
     #   pool:
     #     maxSessions: 10
     #     sessionTtlHours: 24
+    #     # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+    #     # set in Rust when omitted here). Raise per-agent for bots that run long
+    #     # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+    #     # promptHardTimeoutSecs: 1800
+    #     # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+    #     # or the ceiling only fires on the next tick (default 30).
+    #     # livenessCheckSecs: 30
     #   reactions:
     #     enabled: true
     #     removeAfterReply: false
@@ -200,6 +228,13 @@ agents:
     #   pool:
     #     maxSessions: 10
     #     sessionTtlHours: 24
+    #     # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+    #     # set in Rust when omitted here). Raise per-agent for bots that run long
+    #     # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+    #     # promptHardTimeoutSecs: 1800
+    #     # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+    #     # or the ceiling only fires on the next tick (default 30).
+    #     # livenessCheckSecs: 30
     #   persistence:
     #     enabled: true
     #     storageClass: ""
@@ -228,6 +263,13 @@ agents:
     #   pool:
     #     maxSessions: 10
     #     sessionTtlHours: 24
+    #     # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+    #     # set in Rust when omitted here). Raise per-agent for bots that run long
+    #     # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+    #     # promptHardTimeoutSecs: 1800
+    #     # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+    #     # or the ceiling only fires on the next tick (default 30).
+    #     # livenessCheckSecs: 30
     #   persistence:
     #     enabled: true
     #     storageClass: ""
@@ -339,6 +381,13 @@ agents:
     pool:
       maxSessions: 10
       sessionTtlHours: 24
+      # promptHardTimeoutSecs: ceiling for a single prompt (default 1800 = 30min,
+      # set in Rust when omitted here). Raise per-agent for bots that run long
+      # autonomous turns (e.g. openspec apply) without ever pausing for a human.
+      # promptHardTimeoutSecs: 1800
+      # livenessCheckSecs: recv-loop poll cadence; keep well below promptHardTimeoutSecs
+      # or the ceiling only fires on the next tick (default 30).
+      # livenessCheckSecs: 30
     reactions:
       enabled: true
       removeAfterReply: false

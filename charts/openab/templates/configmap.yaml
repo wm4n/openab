@@ -166,6 +166,12 @@ data:
     [pool]
     max_sessions = {{ ($cfg.pool).maxSessions | default 10 }}
     session_ttl_hours = {{ ($cfg.pool).sessionTtlHours | default 24 }}
+    {{- if ($cfg.pool).promptHardTimeoutSecs }}
+    prompt_hard_timeout_secs = {{ ($cfg.pool).promptHardTimeoutSecs }}
+    {{- end }}
+    {{- if ($cfg.pool).livenessCheckSecs }}
+    liveness_check_secs = {{ ($cfg.pool).livenessCheckSecs }}
+    {{- end }}
 
     [reactions]
     enabled = {{ if hasKey ($cfg.reactions) "enabled" }}{{ ($cfg.reactions).enabled }}{{ else }}true{{ end }}
