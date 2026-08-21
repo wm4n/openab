@@ -21,6 +21,9 @@ agents:
     enabled: false
 
   rick:
+    image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
+    imagePullSecrets:
+      - name: ghcr-104corp
     command: claude-agent-acp
     args: []
     workingDir: /home/node # HOME 跟著它；PVC 掛在此
@@ -34,7 +37,7 @@ agents:
       HANDOFF_REVIEWER_SUMMER: "<@1522253638465093752>"
     discord:
       enabled: true
-      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedChannels: ["1528965074562191420", "1528965173761802420", "1522271475552354394", "1526283579309690990"] # cac-dev-team, cac-notify, dev-bot(william workspace), bot-notify(william workspace)
       allowedUsers: ["824092654060830770"] # 空=允許頻道內任何人
       allowBotMessages: "mentions" # bot 互呼（Part K）
       trustedBotIds: ["1521431781641818202", "1522253638465093752"] # Morty, Summer
@@ -47,12 +50,19 @@ agents:
     pool:
       maxSessions: 5
       sessionTtlHours: 24
+      # 單輪 prompt 可能跑很久；預設 1800s 撞過(Agent exceeded hard timeout)，拉到 4hr。
+      promptHardTimeoutSecs: 14400
+    reactions:
+      toolDisplay: "compact"
     persistence:
       enabled: true
       storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
       size: 30Gi
 
   morty:
+    image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
+    imagePullSecrets:
+      - name: ghcr-104corp
     command: claude-agent-acp
     args: []
     workingDir: /home/node
@@ -62,7 +72,7 @@ agents:
       HANDOFF_BUILDER: "<@1519868630064562278>"
     discord:
       enabled: true
-      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedChannels: ["1528965074562191420", "1528965173761802420", "1522271475552354394", "1526283579309690990"] # follow Rick
       allowedUsers: ["824092654060830770"] # 空=允許頻道內任何人
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1522253638465093752"] # Rick, Summer
@@ -85,12 +95,19 @@ agents:
     pool:
       maxSessions: 5
       sessionTtlHours: 24
+      # 單輪 prompt 可能跑很久；預設 1800s 撞過(Agent exceeded hard timeout)，拉到 4hr。
+      promptHardTimeoutSecs: 14400
+    reactions:
+      toolDisplay: "compact"
     persistence:
       enabled: true
       storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
       size: 30Gi
 
   genie:
+    image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
+    imagePullSecrets:
+      - name: ghcr-104corp
     command: claude-agent-acp
     args: []
     workingDir: /home/node
@@ -122,6 +139,8 @@ agents:
       # solo-feature-pipeline 一路 openspec new→ff→apply→review→archive→PR 不中途停，
       # 單輪 prompt 可能跑很久；預設 1800s 撞過(Agent exceeded hard timeout)，拉到 4hr。
       promptHardTimeoutSecs: 14400
+    reactions:
+      toolDisplay: "compact"
     persistence:
       enabled: true
       storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path

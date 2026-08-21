@@ -37,7 +37,7 @@ agents:
       HANDOFF_BUILDER: "<@1519868630064562278>"
     discord:
       enabled: true
-      allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
+      allowedChannels: ["1528965074562191420", "1528965173761802420", "1522271475552354394", "1526283579309690990"] # cac-dev-team, cac-notify, dev-bot(william workspace), bot-notify(william workspace)
       allowedUsers: []                                               # 空=允許頻道內任何人
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1521431781641818202"] # Rick, Morty
