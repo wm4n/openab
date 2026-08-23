@@ -48,6 +48,13 @@
 #    （`ssh: not found`），一律失敗並回報「SSH authentication failed」。用完整
 #    `https://github.com/104corp/104cac-claude-marketplace` 才會走 gh 已設定好的
 #    HTTPS credential helper（`gh auth setup-git`），不會嘗試 SSH。實測踩過（2026-08-05）。
+# ⚠️ 2026-08-24 只給 Rick 新增 `mattpocock-skills@claude-plugins-official`：jira-grill
+#    skill 的 design-tree/frontier 連續提問方法論引用這個 plugin 裡的 `grilling` skill，
+#    單一事實來源留在那邊、jira-grill 本身不重複實作。marketplace `claude-plugins-official`
+#    已因 superpowers 而加過，不需要再 `marketplace add`。跟 skill-registry 同樣的
+#    tradeoff：這個 plugin 沒辦法只挑 grilling 裝，Rick 會多出 diagnosing-bugs/tdd/
+#    prototype/wizard 等用不到的 skill，**已知且接受**。只給 Rick，不給
+#    Morty/Summer/Genie——目前只有 jira-grill 需要它。
 
 set -euo pipefail
 
@@ -59,6 +66,8 @@ kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketpla
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update claude-plugins-official || true
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update openab-bot-skills@wm4n-skill-registry
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update superpowers@claude-plugins-official
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install mattpocock-skills@claude-plugins-official || true
+kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update mattpocock-skills@claude-plugins-official
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install skill-registry@wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
 kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace add https://github.com/104corp/104cac-claude-marketplace || true
