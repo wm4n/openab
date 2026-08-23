@@ -619,8 +619,11 @@ kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plug
 kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plugins/installed_plugins.json | grep -A3 mattpocock-skills
 ```
 
-Expected:`openab-bot-skills` 印出的版本是 `1.4.0`;`mattpocock-skills` 有
-安裝紀錄(版本不拘,只要存在)。
+Expected:`openab-bot-skills` 印出的版本是 `1.4.1`(Task 1 產出
+`1.4.0`,之後依 `superpowers:writing-for-agents` review 精煉內容、修正
+「引用未安裝的 mattpocock-skills」問題,bump 到 `1.4.1`,見
+`wm4n/skill-registry` commit `04bce5e`);`mattpocock-skills` 有安裝紀錄
+(版本不拘,只要存在)。
 
 - [ ] **Step 5: 更新 Rick 的 persona 檔(Task 3 的 `Rick-CLAUDE_v2.md` 改動)**
 
