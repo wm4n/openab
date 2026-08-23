@@ -605,16 +605,22 @@ kubectl exec deployment/openab-claude-rick -n cac -- env | grep -E "JIRA_TOKEN|J
 
 Expected:四個變數都印出且有值(`JIRA_TOKEN` 只需看到有值,不用核對內容)。
 
-- [ ] **Step 4: 更新 Rick 的 plugin,拉到 Task 1 的新版 `jira-grill`**
+- [ ] **Step 4: 更新 Rick 的 plugin,拉到 Task 1 的新版 `jira-grill`,並裝上
+  `mattpocock-skills`(jira-grill 引用它的 `grilling` skill 做連續提問,
+  不是重複實作)**
 
 ```bash
 kubectl exec deployment/openab-claude-rick -n cac -- gh auth switch --hostname github.com --user cac-william
 kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace update wm4n-skill-registry
 kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update openab-bot-skills@wm4n-skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin install mattpocock-skills@claude-plugins-official || true
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update mattpocock-skills@claude-plugins-official
 kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plugins/installed_plugins.json | grep -A3 openab-bot-skills
+kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plugins/installed_plugins.json | grep -A3 mattpocock-skills
 ```
 
-Expected:印出的版本是 `1.4.0`。
+Expected:`openab-bot-skills` 印出的版本是 `1.4.0`;`mattpocock-skills` 有
+安裝紀錄(版本不拘,只要存在)。
 
 - [ ] **Step 5: 更新 Rick 的 persona 檔(Task 3 的 `Rick-CLAUDE_v2.md` 改動)**
 
