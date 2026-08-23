@@ -160,41 +160,76 @@ comment:
 
 ## 需要的基礎設施/設定變更
 
+> **2026-08-24 複查更正**:寫作當下直接讀取現行 `values-openab-claude.yaml`
+> 與 `deployment-guides/k3s/update-skills.sh`,發現先前(由 subagent 回報)
+> 認定「Rick 沒有 cron、沒有 jira-fetch/openab-schedule」的說法有誤,已在
+> 下方修正為實際查證結果,並補上「skill 真正的真相來源在哪」這個先前完全
+> 沒發現的關鍵事實。
+
 1. **Rick 加裝 JIRA 認證**:`deployment-guides/k3s/values-openab-claude.yaml`
-   的 Rick 區塊目前沒有任何 `secretEnv`,需比照 Morty/Genie 加上:
+   的 Rick 區塊(第 23–53 行)目前確實沒有任何 `secretEnv`,需比照
+   Morty/Genie 加上:
    ```yaml
    secretEnv:
      - { name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN }
      - { name: JIRA_BASE_URL, secretName: morty-jira, secretKey: JIRA_BASE_URL }
      - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
    ```
-   直接複用既有 `morty-jira` K8s Secret,不新建 Secret。
-2. **Rick 開通 usercron**:Rick 目前 values 沒有 `cron` 區塊(Morty/Genie
-   有),需加上:
-   ```yaml
-   cron:
-     usercronEnabled: true
-     usercronPath: "cronjob.toml"
-   ```
-   這一步需要 `config.toml` 生效並**重啟容器**,Rick 自己做不到,需要
-   人類/deploy 端執行 `helm upgrade` 等動作。
-3. **裝 jira-fetch skill 給 Rick**:目前只有 Morty 在用(見
-   `docs/superpowers/specs/2026-07-05-jira-fetch-skill-design.md`),
-   需要同樣方式讓 Rick 也能存取(clone `wm4n/ai-skill` 到容器內,或走
-   既有的 `update-skills.sh` bootstrap 流程)。
-4. **裝 openab-schedule skill 給 Rick**(若尚未安裝):Rick 需要這支
-   skill 才能合法管理 `~/.openab/cronjob.toml`(它是「唯一合法的排程
-   機制」,見該 skill 的 Iron Rules)。
-5. **新增 `jira-grill` skill**:`deployment-guides/bot-skills/jira-grill/
-   SKILL.md`,把上面 discovery job 建立、per-ticket job 動態建立/刪除、
-   grilling 提問邏輯、收斂/中止處理、label 狀態機,寫成可執行的 SOP,
-   格式比照現有 `openab-schedule`/`requirement-analysis` 兩支 skill。
-6. **`Rick-CLAUDE_v2.md`** 加一段指向這支新 skill 的入口說明,並註明
+   直接複用既有 `morty-jira` K8s Secret(namespace `cac` 內任何 Deployment
+   都能引用同一個 Secret,不受名稱裡的「morty」字樣限制),不新建 Secret。
+2. ~~Rick 開通 usercron~~ **已不需要**:直接讀檔確認 Rick 的 values 區塊
+   (第 44–46 行)**已經有** `cron: usercronEnabled: true` /
+   `usercronPath: "cronjob.toml"`,無需任何變更。
+3. ~~裝 jira-fetch skill 給 Rick~~ **已不需要**:`deployment-guides/k3s/
+   update-skills.sh` 的註解明確記載「2026-07-24 決定:skill-registry
+   plugin(jira-fetch/learn-from-repo/self-evolution)四隻都裝,不再只給
+   Morty」,腳本第 62–63 行也對 Rick 執行
+   `claude plugin install/update skill-registry@wm4n-skill-registry`。
+   Rick 已經能用 `jira-fetch` skill。
+4. ~~裝 openab-schedule skill 給 Rick~~ **已不需要**:`openab-schedule`
+   實際上被打包在 **`openab-bot-skills`** plugin(`wm4n/skill-registry`
+   repo,`plugins/openab-bot-skills/skills/openab-schedule/`)裡。
+   `update-skills.sh` 第 60 行對 Rick 執行
+   `claude plugin update openab-bot-skills@wm4n-skill-registry`——這是
+   **update** 不是 **install**,代表 Rick 早就裝好這個 plugin 了。
+5. **⚠️ 關鍵事實(先前完全遺漏)：skill 內容的真相來源不在這個
+   `openab` repo**。`deployment-guides/bot-skills/openab-schedule/
+   SKILL.md` 這份檔案只是歷史沿革下的參考副本,`BOT_SETUP.md` Part K2b
+   已白紙黑字寫明「改 `deployment-guides/bot-skills/` 裡的檔案不再有
+   作用(那份 clone 已經不是真相來源)」。真正生效的內容在本機已有
+   clone 的 **`wm4n/skill-registry`** repo(路徑
+   `/Users/william.chao/workspace/github/skill-registry`)裡的
+   `plugins/openab-bot-skills/skills/`,新 skill 要寫在這裡、bump
+   `plugins/openab-bot-skills/.claude-plugin/plugin.json` 與根目錄
+   `.claude-plugin/marketplace.json` 對應 plugin 條目的 `version`、
+   push 後,再對 Rick 的 pod 執行 `claude plugin marketplace update` +
+   `claude plugin update openab-bot-skills@wm4n-skill-registry` 才會
+   生效。**這個 repo 屬於 `wm4n/*`,commit/push 一律用 wm4n GitHub 帳號**
+   (現有慣例,見 `[[feedback-github-account-per-repo]]`)。
+6. **新增 `jira-grill` skill**:寫在 `wm4n/skill-registry` repo 的
+   `plugins/openab-bot-skills/skills/jira-grill/SKILL.md`(加入既有的
+   `openab-bot-skills` plugin,不另開新 plugin——Rick 已裝這個 plugin,
+   不需要多一道 `plugin install`),把上面 discovery job 建立、
+   per-ticket job 動態建立/刪除、grilling 提問邏輯、收斂/中止處理、
+   label 狀態機,寫成可執行的 SOP,格式比照同目錄下現有
+   `openab-schedule`/`jira-fetch`(`skills/jira-fetch/SKILL.md`,
+   `skill-registry` plugin)兩支 skill 的寫法慣例(node 解析 JSON、
+   `curl -u email:token` Basic Auth,不假設 `jq`/`python3`/GNU-only
+   coreutils 存在)。
+7. **`Rick-CLAUDE_v2.md`** 加一段指向這支新 skill 的入口說明,並註明
    這是獨立於三 bot pipeline 之外的用途,鐵則(worktree 隔離、絕不
-   merge/approve 等)不受影響、原樣適用。
-7. 依既有慣例(見 `[[memory]] BOT_SETUP.md 同步指令`)同步更新
-   `deployment-guides/BOT_SETUP.md` runbook,把上述 1–6 步驟納入 Rick
-   的建置流程。
+   merge/approve 等)不受影響、原樣適用。此檔在 `openab` repo,屬於
+   `wm4n/openab`(fork),commit/push 沿用目前這個 repo 既有的帳號慣例。
+8. 依既有慣例(見 `[[memory]] BOT_SETUP.md 同步指令`)同步更新
+   `deployment-guides/BOT_SETUP.md` runbook,把上述 1、5–7 步驟(2–4
+   已確認不需要)納入 Rick 的建置流程。
+9. **`openab-schedule` 的「先跟人類確認卡片」流程不適用於本設計的自動
+   建 job**:discovery job 是無人在場的自動觸發,`jira-grill` skill 建立
+   /刪除 per-ticket cron job entry 時直接讀寫 `~/.openab/cronjob.toml`
+   (語法沿用 `openab-schedule` 的 `[[jobs]]` 慣例),**不**套用該 skill
+   文件裡「resolve 每個欄位→貼摘要卡→等人類確認」那段流程——那是給
+   人類即時對話請求排程時的 UX,人類已透過本 spec 的核准,等同一次性
+   授權這套自動建立/清理 job 的行為。
 
 ## 環境變數彙整(Rick 新增)
 
