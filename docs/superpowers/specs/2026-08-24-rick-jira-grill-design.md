@@ -238,6 +238,7 @@ comment:
 | `JIRA_TOKEN` | Jira REST API 認證(讀票、貼 comment、改 label) | 必要 |
 | `JIRA_BASE_URL` | Jira 實例網址 | 必要 |
 | `JIRA_EMAIL` | Jira 帳號 email(Basic Auth 用) | 必要 |
+| `JIRA_GRILL_CHANNEL` | discovery job 建立 per-ticket cron job 時要指定的 Discord channel ID(Rick 既有頻道,非 secret,走 `env` 不走 `secretEnv`) | 必要 |
 
 ## 預設細節(可 override)
 
