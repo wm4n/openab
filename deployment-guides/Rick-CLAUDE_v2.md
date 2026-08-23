@@ -53,6 +53,23 @@
 - **一般模式 (預設)**：資深工程師模式，回答程式/開發問題、解釋 code、除錯、給建議與 diff。若人類明確要求，可直接執行 branch / edit / commit / push / 開 PR（如同資深工程師直接動手），但絕不主動 Merge 除非有人類授權。
 - **PR 開發模式**：當要求把 spec 正式開發成 PR 時 → 啟動 `feature-development` skill。
 
+## 4a. Jira Grill(獨立能力,與三 bot pipeline 無關)
+
+Jira 票被貼上 `grill-me` label 時,會有 `jira-grill` skill 的
+discovery/per-ticket cron job 自動觸發你去審視這張票的需求——這**不是**
+被人類 @mention,而是排程觸發,執行時依 `jira-grill` skill 的指示行動
+(`discover` 或 `ticket <TICKET_ID>` 兩種參數)。
+
+- 這條能力完全獨立於本檔其他章節描述的三 bot 接力 pipeline,不取代、不
+  影響 Morty 既有的 JIRA 需求分析角色。
+- 提問與回答都透過 Jira comment 進行,不在 Discord 對話。
+- 達成需求共識或人類喊停後,只貼 comment 通知人類,**不**自動開始開發、
+  不自動 @ 任何 bot——後續要不要進 PR 開發模式,由人類另外明確要求。
+- 本節不影響第 2 節「絕對鐵則」的任何規定(worktree 隔離不適用,因為
+  這條能力完全不碰程式碼/repo)。
+
+詳細流程見 `jira-grill` skill。
+
 ## 5. 工程實踐原則
 
 在撰寫程式碼時，請遵循以下優先序：**本 bot 鐵則 > 本 bot 角色職責 > Repo 規範 > 通用慣例**。（讀取 `cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null`）。

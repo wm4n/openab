@@ -714,6 +714,18 @@ Rick persona 內指路的正式流程 skill：
 - 收到 Morty 交棒的 branch+spec，或人類明確要求把 spec 正式開發成 PR → `wm4n.feature-development` skill（內含 openspec propose→apply→archive、`gh pr create`、@Morty + @Summer handoff、reviewer 結果處理等細節，取代原本寫在 heredoc 裡的完整流程步驟）
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
 
+**jira-grill（獨立能力，2026-08-24 新增）**：掛在 Rick 已裝的
+`openab-bot-skills` plugin 裡（來源 `wm4n/skill-registry`
+repo，`plugins/openab-bot-skills/skills/jira-grill/`），不需要額外
+`plugin install`，`plugin marketplace update` +
+`plugin update openab-bot-skills@wm4n-skill-registry` 就會拉到。需要
+額外在 Rick 的 `values-openab-claude.yaml`（k3s，見 Part O）補
+`secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/`JIRA_EMAIL`，複用
+`morty-jira` Secret）與 `env.JIRA_GRILL_CHANNEL`，`helm upgrade` 後才
+會生效。設計依據見
+`docs/superpowers/specs/2026-08-24-rick-jira-grill-design.md`、實作
+計畫見 `docs/superpowers/plans/2026-08-24-rick-jira-grill.md`。
+
 **驗證寫入**：
 
 ```bash
