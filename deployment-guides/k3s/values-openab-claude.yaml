@@ -43,7 +43,7 @@ agents:
       HANDOFF_REVIEWER_MORTY: "<@1521431781641818202>"
       HANDOFF_REVIEWER_SUMMER: "<@1522253638465093752>"
       # jira-grill skill 用：discovery job 建立 per-ticket cron job 時要指定的頻道。
-      JIRA_GRILL_CHANNEL: "1528965074562191420" # cac-dev-team
+      JIRA_GRILL_CHANNEL: "1528965173761802420" # cac-notify
       # jira-grill skill 用：discovery 只掃這些 project 的 grill-me label，
       # 避免跨專案誤觸發；要新增專案改這裡即可，不用改 skill 內容。
       JIRA_GRILL_PROJECTS: "CACJOB,CACVIP,CACATS"
