@@ -482,6 +482,14 @@ discovery job 建立 per-ticket cron job 時指定頻道用。"
 
 Expected:commit 成功。
 
+> **2026-08-24 後續補充**:discovery 原本不限定 project、掃 Rick Jira
+> 帳號能存取的所有專案,跨專案誤觸發風險太高,追加了
+> `JIRA_GRILL_PROJECTS`(逗號分隔的 project key 白名單,目前
+> `CACJOB,CACVIP,CACATS`)到同一個 Rick `env:` 區塊(緊接在
+> `JIRA_GRILL_CHANNEL` 之後),`jira-grill` skill 的 discovery JQL 相應
+> 改成 `project IN (...) AND labels = "grill-me" AND ...`。Task 4 的
+> 驗證步驟(見下)已對應更新,這裡不重複列指令。
+
 ---
 
 ### Task 3: `openab` repo — `Rick-CLAUDE_v2.md` 指路 + `BOT_SETUP.md` 同步
@@ -609,10 +617,11 @@ Expected:`rollout status` 顯示 `successfully rolled out`。
 - [ ] **Step 3: 驗證 Rick pod 讀得到新環境變數**
 
 ```bash
-kubectl exec deployment/openab-claude-rick -n cac -- env | grep -E "JIRA_TOKEN|JIRA_BASE_URL|JIRA_EMAIL|JIRA_GRILL_CHANNEL"
+kubectl exec deployment/openab-claude-rick -n cac -- env | grep -E "JIRA_TOKEN|JIRA_BASE_URL|JIRA_EMAIL|JIRA_GRILL_CHANNEL|JIRA_GRILL_PROJECTS"
 ```
 
-Expected:四個變數都印出且有值(`JIRA_TOKEN` 只需看到有值,不用核對內容)。
+Expected:五個變數都印出且有值(`JIRA_TOKEN` 只需看到有值,不用核對內容;
+`JIRA_GRILL_PROJECTS` 應顯示 `CACJOB,CACVIP,CACATS`)。
 
 - [ ] **Step 4: 更新 Rick 的 plugin,拉到 Task 1 的新版 `jira-grill`,並裝上
   `mattpocock-skills`(jira-grill 引用它的 `grilling` skill 做連續提問,
@@ -628,13 +637,15 @@ kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plug
 kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plugins/installed_plugins.json | grep -A3 mattpocock-skills
 ```
 
-Expected:`openab-bot-skills` 印出的版本是 `1.5.1`(Task 1 產出 `1.4.0`,
-之後三輪修訂依序:①`superpowers:writing-for-agents` review 精煉內容、
+Expected:`openab-bot-skills` 印出的版本是 `1.5.2`(Task 1 產出 `1.4.0`,
+之後四輪修訂依序:①`superpowers:writing-for-agents` review 精煉內容、
 修正「引用未安裝的 mattpocock-skills」問題(bump `1.4.1`,commit
 `04bce5e`);②新增「分析前先解析並準備對應 GitHub repo」能力(bump
 `1.5.0`,commit `73662c9`);③repo 解析改用 `product-context` skill
 背後的 `104cac-product-registry` 登錄表,取代 `product-repo-map.md`
-(bump `1.5.1`,commit `9b7d56e`),三次都在 `wm4n/skill-registry`);
+(bump `1.5.1`,commit `9b7d56e`);④discovery 限定
+`JIRA_GRILL_PROJECTS` 白名單內的 project,不再掃所有專案(bump
+`1.5.2`,commit `f2b3195`),四次都在 `wm4n/skill-registry`);
 `mattpocock-skills` 有安裝紀錄(版本不拘,只要存在)。
 
 - [ ] **Step 5: 更新 Rick 的 persona 檔(Task 3 的 `Rick-CLAUDE_v2.md` 改動)**
@@ -757,6 +768,7 @@ comment 內容註明是人類中止。
 | label 狀態機 grill-me→active→done | Task 1 SKILL.md 全篇;Task 5 驗證 |
 | Rick 加裝 JIRA 認證(secretEnv) | Task 2 |
 | `JIRA_GRILL_CHANNEL` | Task 1 SKILL.md「環境變數」;Task 2 |
+| `JIRA_GRILL_PROJECTS`(discovery 限定 project 白名單) | Task 1 SKILL.md「環境變數」/「JQL 搜尋」(2026-08-24 追加,commit `f2b3195`);Task 2(2026-08-24 追加) |
 | skill 真相來源在 wm4n/skill-registry | Task 1 |
 | Rick persona 指路 + BOT_SETUP.md 同步 | Task 3 |
 | `helm upgrade` + plugin 更新生效 | Task 4 |

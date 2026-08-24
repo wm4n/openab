@@ -133,8 +133,11 @@ comment:
   thread,之後每次都落在同一 thread——這個 thread 純粹是 discovery
   job 自己的容器,人類不需要去看它。
 - `message`(自包含指令,因為每次觸發都是全新 prompt):用 JQL 搜尋
-  `labels = grill-me AND labels != grill-me-active`(範圍:Rick 對應
-  Jira 帳號能存取的所有專案,沒有限定特定 project key)。找到的每一張票:
+  `project IN (CACJOB,CACVIP,CACATS) AND labels = grill-me AND labels !=
+  grill-me-active`(2026-08-24 更正:範圍限定在
+  `JIRA_GRILL_PROJECTS` 環境變數指定的 project key 白名單,不掃 Jira
+  帳號能存取的其他專案,避免跨專案的 grill-me label 誤觸發)。找到的每
+  一張票:
   1. 把 label 從 `grill-me` 換成 `grill-me-active`(避免下次 discovery
      重複撿到)。
   2. 立刻讀該票內容,跑第一輪 grilling,直接貼出第一輪提問 comment
@@ -239,13 +242,16 @@ comment:
 | `JIRA_BASE_URL` | Jira 實例網址 | 必要 |
 | `JIRA_EMAIL` | Jira 帳號 email(Basic Auth 用) | 必要 |
 | `JIRA_GRILL_CHANNEL` | discovery job 建立 per-ticket cron job 時要指定的 Discord channel ID(Rick 既有頻道,非 secret,走 `env` 不走 `secretEnv`) | 必要 |
+| `JIRA_GRILL_PROJECTS` | discovery 只掃這些 Jira project key(逗號分隔,如 `CACJOB,CACVIP,CACATS`),非 secret,走 `env` | 必要 |
 
 ## 預設細節(可 override)
 
 - 觸發 label 名稱:`grill-me` → 進行中 `grill-me-active` → 完成
   `grill-me-done`。
-- Discovery JQL 掃描範圍:Rick 對應 Jira 帳號能存取的所有專案,未限定
-  特定 project key。
+- Discovery JQL 掃描範圍:**2026-08-24 更正**,限定
+  `JIRA_GRILL_PROJECTS` 指定的 project key 白名單(目前
+  `CACJOB,CACVIP,CACATS`),不掃 Jira 帳號能存取的其他專案——原始設計
+  「不限定特定 project key」已改掉,避免跨專案的 grill-me label 誤觸發。
 - 輪詢間隔:discovery job 與各票的 per-ticket job 皆為 10 分鐘。
 - 通知方式:僅透過 Jira comment 內 @ 提及 reporter/assignee,不額外發
   Discord 通知(Discord thread 在此設計中純粹是 session 容器,人類不需
