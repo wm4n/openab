@@ -671,19 +671,38 @@ discover"`),或由人類直接 `kubectl exec` 寫入:
 
 ```bash
 kubectl exec deployment/openab-claude-rick -n cac -- sh -c '
+cat ~/.openab/cronjob.toml   # 先看清楚現有內容，確認沒有同 id 的 job 才動手
+'
+kubectl exec deployment/openab-claude-rick -n cac -- sh -c '
 cat >> ~/.openab/cronjob.toml <<TOMLEOF
 
 [[jobs]]
 id = "jira-grill-discovery"
 enabled = true
 schedule = "*/10 * * * *"
-channel = "1528965074562191420"
+channel = "1528965173761802420"
 message = "執行 jira-grill skill，參數：discover"
 sender_name = "jira-grill-discovery"
 timezone = "Asia/Taipei"
 TOMLEOF
 cat ~/.openab/cronjob.toml'
 ```
+
+> ⚠️ **2026-08-24 rollout 實測踩過**：`cat >>` 只會 append，不會檢查
+> 有沒有同 `id` 的既有 job；第一次 rollout 就意外多出兩筆
+> `id = "jira-grill-discovery"`（channel 不同），其中一筆已經真的 fire
+> 過（有 `thread_id`），另一筆從未觸發、來源不明。**每次要新增/修改這個
+> job 前，先 `cat` 現有內容確認沒有同 id 的區塊**，若已存在要修改，用
+> `cat >`（整檔覆蓋，帶入所有既有 job）取代 `cat >>`，不要盲目 append。
+>
+> **channel 已改成 cac-notify(`1528965173761802420`)**：discovery job
+> 原本建在 cac-dev-team，人類事後決定改用 cac-notify；同時
+> `values-openab-claude.yaml` 的 `JIRA_GRILL_CHANNEL` 也要同步改成同一個
+> 頻道（discovery 之後建立的 per-ticket job 才會跟 discovery 自己用同
+> 一個頻道），改完要 `helm upgrade` 才生效。上面 TOML 範例已經是改頻道
+> 後的版本；若之前已經在舊頻道（cac-dev-team）建過 job，要把舊的那筆
+> 移除、`thread_id` 不要沿用（thread 綁在舊頻道，換頻道後舊 thread_id
+> 無法沿用，下次觸發時排程器會在新頻道開一條新 thread 並重新寫回）。
 
 Expected:輸出可看到新增的 `[[jobs]]` 區塊,且沒有覆蓋掉原本已存在的其他
 job(先前若有其他 job,输出裡應該還在)。
