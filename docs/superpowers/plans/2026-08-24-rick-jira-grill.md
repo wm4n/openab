@@ -619,11 +619,13 @@ kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plug
 kubectl exec deployment/openab-claude-rick -n cac -- cat /home/node/.claude/plugins/installed_plugins.json | grep -A3 mattpocock-skills
 ```
 
-Expected:`openab-bot-skills` 印出的版本是 `1.5.0`(Task 1 產出
-`1.4.0`,之後兩輪 `superpowers:writing-for-agents` review 依序:①精煉
-內容、修正「引用未安裝的 mattpocock-skills」問題(bump `1.4.1`,commit
+Expected:`openab-bot-skills` 印出的版本是 `1.5.1`(Task 1 產出 `1.4.0`,
+之後三輪修訂依序:①`superpowers:writing-for-agents` review 精煉內容、
+修正「引用未安裝的 mattpocock-skills」問題(bump `1.4.1`,commit
 `04bce5e`);②新增「分析前先解析並準備對應 GitHub repo」能力(bump
-`1.5.0`,commit `73662c9`),兩次都在 `wm4n/skill-registry`);
+`1.5.0`,commit `73662c9`);③repo 解析改用 `product-context` skill
+背後的 `104cac-product-registry` 登錄表,取代 `product-repo-map.md`
+(bump `1.5.1`,commit `9b7d56e`),三次都在 `wm4n/skill-registry`);
 `mattpocock-skills` 有安裝紀錄(版本不拘,只要存在)。
 
 - [ ] **Step 5: 更新 Rick 的 persona 檔(Task 3 的 `Rick-CLAUDE_v2.md` 改動)**
