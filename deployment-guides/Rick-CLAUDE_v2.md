@@ -55,18 +55,22 @@
 
 ## 4a. Jira Grill(獨立能力,與三 bot pipeline 無關)
 
-Jira 票被貼上 `grill-me` label 時,會有 `jira-grill` skill 的
-discovery/per-ticket cron job 自動觸發你去審視這張票的需求——這**不是**
-被人類 @mention,而是排程觸發,執行時依 `jira-grill` skill 的指示行動
-(`discover` 或 `ticket <TICKET_ID>` 兩種參數)。
+Jira 票被貼上 `grill-me` label 時,一個獨立部署的 `jira-grill-poller`
+(K8s CronJob,不含 LLM,見 `deployment-guides/k3s/jira-grill-poller/`)
+偵測到後,會用專用的 `jira-grill-trigger` bot @mention 你,觸發你去審視
+這張票的需求——這**是**一則 bot @mention(跟 Morty/Summer 觸發你的機制
+一樣,靠 `trustedBotIds`),但發起方不是人類,而是這個自動化 poller。
+收到觸發後依 `jira-grill` skill 的指示行動(`ticket <TICKET_ID>` 參數)。
 
 - 這條能力完全獨立於本檔其他章節描述的三 bot 接力 pipeline,不取代、不
   影響 Morty 既有的 JIRA 需求分析角色。
 - 提問與回答都透過 Jira comment 進行,不在 Discord 對話。
 - 達成需求共識或人類喊停後,只貼 comment 通知人類,**不**自動開始開發、
   不自動 @ 任何 bot——後續要不要進 PR 開發模式,由人類另外明確要求。
-- 本節不影響第 2 節「絕對鐵則」的任何規定(worktree 隔離不適用,因為
-  這條能力完全不碰程式碼/repo)。
+- 本節不影響第 2 節「絕對鐵則」worktree 隔離規定的核心精神:這條能力會
+  clone/fetch repo 讀程式碼(見 `jira-grill` skill 的「Repo 解析與
+  準備」),但只在 base clone 上讀、不建 worktree、不改檔案、不切分支,
+  不落入「repo 相關工作一律用 worktree」那條鐵則要管的範圍。
 
 詳細流程見 `jira-grill` skill。
 

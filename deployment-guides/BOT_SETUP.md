@@ -714,17 +714,31 @@ Rick persona 內指路的正式流程 skill：
 - 收到 Morty 交棒的 branch+spec，或人類明確要求把 spec 正式開發成 PR → `wm4n.feature-development` skill（內含 openspec propose→apply→archive、`gh pr create`、@Morty + @Summer handoff、reviewer 結果處理等細節，取代原本寫在 heredoc 裡的完整流程步驟）
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
 
-**jira-grill（獨立能力，2026-08-24 新增）**：掛在 Rick 已裝的
-`openab-bot-skills` plugin 裡（來源 `wm4n/skill-registry`
-repo，`plugins/openab-bot-skills/skills/jira-grill/`），不需要額外
-`plugin install`，`plugin marketplace update` +
+**jira-grill（獨立能力，2026-08-24 新增，2026-08-25 改用 deterministic
+poller 觸發）**：掛在 Rick 已裝的 `openab-bot-skills` plugin 裡（來源
+`wm4n/skill-registry` repo，`plugins/openab-bot-skills/skills/jira-grill/`），
+不需要額外 `plugin install`，`plugin marketplace update` +
 `plugin update openab-bot-skills@wm4n-skill-registry` 就會拉到。需要
 額外在 Rick 的 `values-openab-claude.yaml`（k3s，見 Part O）補
 `secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/`JIRA_EMAIL`，複用
-`morty-jira` Secret）與 `env.JIRA_GRILL_CHANNEL`，`helm upgrade` 後才
-會生效。設計依據見
-`docs/superpowers/specs/2026-08-24-rick-jira-grill-design.md`、實作
-計畫見 `docs/superpowers/plans/2026-08-24-rick-jira-grill.md`。
+`morty-jira` Secret）與 `discord.trustedBotIds` 裡加入
+`jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
+
+觸發機制**不是**掛在 Rick 自己身上的 cron 輪詢，而是一個獨立部署的
+`jira-grill-poller`（K8s CronJob，見
+`deployment-guides/k3s/jira-grill-poller/`，跟 openab 的 Helm release
+分開部署）：這個 poller 全程不經過 LLM，只有偵測到新的 `grill-me` 票
+或既有票的新回覆，才用一個新註冊的 `jira-grill-trigger` Discord bot
+@mention Rick 觸發，觸發後才會消耗一次 LLM turn。部署/更新 poller 見
+`deployment-guides/k3s/jira-grill-poller/cronjob.yaml`。
+
+設計依據見
+`docs/superpowers/specs/2026-08-24-rick-jira-grill-design.md`（grilling
+方法論本身）與
+`docs/superpowers/specs/2026-08-25-jira-grill-poller-design.md`（觸發
+機制重寫）；實作計畫見
+`docs/superpowers/plans/2026-08-24-rick-jira-grill.md`與
+`docs/superpowers/plans/2026-08-25-jira-grill-poller.md`。
 
 **驗證寫入**：
 
