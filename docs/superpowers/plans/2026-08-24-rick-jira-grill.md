@@ -590,10 +590,19 @@ Expected:看到該 Secret 存在。若不存在,參考 `K3S.md` A4 節重建。
 
 ```bash
 cd <k3s values 檔所在目錄，通常是 deployment-guides/k3s/>
-helm upgrade openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
+helm upgrade openab-claude oci://ghcr.io/openabdev/charts/openab --version 0.9.0-beta.1 -n cac \
   -f values-openab-claude.yaml -f values-secret-claude.yaml
 kubectl rollout status deployment/openab-claude-rick -n cac
 ```
+
+⚠️ **必須帶 `--version 0.9.0-beta.1`**：不指定版本會抓 OCI registry 上
+目前的預設 tag，2026-08-24 實測不指定版本會抓到較新的 `0.9.0`，其
+`configmap.yaml` 對 `agents.genie` 的舊式結構化欄位（`discord.*`/
+`pool.*` 等）設了硬性擋板（要求遷移到 `configToml`/`configUrl`），導致
+整個 upgrade 失敗（Rick/Morty/Genie 共用一個 release，genie 沒過就全部
+卡住）。`0.9.0-beta.1` 是 `helm history openab-claude -n cac` 確認過目前
+線上真正 `deployed` 的版本，先用這個版本把 jira-grill 的改動部署上去；
+genie 遷移到 `configToml` 是另一件事，不要在這裡順便做。
 
 Expected:`rollout status` 顯示 `successfully rolled out`。
 

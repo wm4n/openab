@@ -1,9 +1,16 @@
 # openab-claude release：Rick + Morty（Claude 家族，維持預設 seccomp RuntimeDefault）
 #
 # 用法：
-#   helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
+#   helm install openab-claude oci://ghcr.io/openabdev/charts/openab --version 0.9.0-beta.1 -n cac \
 #     -f values-openab-claude.yaml -f values-secret-claude.yaml
 #
+# ⚠️ 務必帶 --version（目前釘住 0.9.0-beta.1，見 `helm history openab-claude -n cac`
+#    確認的線上實際版本）：不指定版本會抓 OCI registry 當下的預設 tag，
+#    2026-08-24 實測不指定會拉到較新的 0.9.0，其 configmap.yaml 對
+#    agents.genie 的舊式結構化欄位（discord.*/pool.* 等）設了硬性擋板
+#    （要求遷移到 configToml/configUrl），導致整個 upgrade 失敗（Rick/
+#    Morty/Genie 共用一個 release，genie 沒過就全部卡住）。升級版本前
+#    先完成 genie 的 configToml 遷移，再拿掉這個釘版本。
 # ⚠️ Discord token 由 -f values-secret-claude.yaml 疊加，不要寫在這裡。
 # ⚠️ 所有雪花 ID（channel/user/role/bot）一律用字串（引號）；chart 對浮點精度損毀有防呆會 fail。
 # 頻道：cac-dev-team(1528965074562191420)、cac-notify(1528965173761802420)，兩個都要回應。

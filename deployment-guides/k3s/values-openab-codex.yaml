@@ -1,9 +1,16 @@
 # openab-codex release：Summer（Codex 家族）
 #
 # 用法：
-#   helm install openab-codex oci://ghcr.io/openabdev/charts/openab -n cac \
+#   helm install openab-codex oci://ghcr.io/openabdev/charts/openab --version <目前 deployed 的版本> -n cac \
 #     -f values-openab-codex.yaml -f values-secret-codex.yaml
 #
+# ⚠️ 務必帶 --version：先跑 `helm history openab-codex -n cac` 確認目前
+#    `deployed` 那筆的 CHART 版本再帶入，不要不指定版本直接跑。不指定會
+#    抓 OCI registry 當下的預設 tag，2026-08-24 在 openab-claude release
+#    實測過不指定會拉到比線上版本新的 chart、對 agents.genie 的舊式
+#    結構化欄位設了硬性擋板導致整個 upgrade 失敗——openab-codex 目前雖然
+#    沒有 genie 那種欄位，但同一個 registry 之後也可能引入其他 breaking
+#    change，一律先釘版本再升級。
 # ⚠️ seccomp 放寬到 Unconfined，讓 codex-acp 內部 bwrap 能建 user namespace（openab issue #1047）。
 #    chart 的 podSecurityContext 是 chart-global，此處覆蓋會套用到本 release 所有 agent（目前只有 Summer）。
 #    這也是為什麼 Summer 要獨立成一個 release、不和 Rick/Morty 混（那兩隻維持 RuntimeDefault）。
