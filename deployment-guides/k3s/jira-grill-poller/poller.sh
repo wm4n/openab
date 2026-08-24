@@ -1,0 +1,110 @@
+#!/bin/bash
+#
+# jira-grill-poller: deterministic 前置判斷，不經過 LLM。
+# 用兩條獨立 JQL 分別找「新票」（無時間窗口）跟「進行中的票有沒有新回覆」
+# （用 updated 時間窗口粗篩），只有真的需要處理才用 jira-grill-trigger
+# bot 觸發 Rick。細節見 docs/superpowers/specs/2026-08-25-jira-grill-poller-design.md。
+
+: "${JIRA_TOKEN:?missing JIRA_TOKEN}"
+: "${JIRA_EMAIL:?missing JIRA_EMAIL}"
+: "${JIRA_BASE_URL:?missing JIRA_BASE_URL}"
+: "${JIRA_GRILL_PROJECTS:?missing JIRA_GRILL_PROJECTS}"
+: "${JIRA_GRILL_CHANNEL:?missing JIRA_GRILL_CHANNEL}"
+: "${JIRA_GRILL_TRIGGER_BOT_TOKEN:?missing JIRA_GRILL_TRIGGER_BOT_TOKEN}"
+: "${RICK_DISCORD_USER_ID:?missing RICK_DISCORD_USER_ID}"
+
+PROJECTS_CLAUSE=$(node -e '
+const keys = process.env.JIRA_GRILL_PROJECTS.split(",").map(s => s.trim()).filter(Boolean);
+console.log("project IN (" + keys.map(k => JSON.stringify(k)).join(",") + ")");
+')
+
+# $1 = JQL；印出符合的 ticket key，一行一個。搜尋失敗印錯誤到 stderr、成功但無結果不印任何東西。
+jira_search() {
+  ENCODED_JQL=$(node -e 'console.log(encodeURIComponent(process.argv[1]))' "$1")
+  RESPONSE=$(curl -s -u "${JIRA_EMAIL}:${JIRA_TOKEN}" -w '\n%{http_code}' \
+    "${JIRA_BASE_URL}/rest/api/2/search?jql=${ENCODED_JQL}&fields=key")
+  printf '%s' "$RESPONSE" | node -e '
+    const raw = require("fs").readFileSync(0, "utf8");
+    const nl = raw.lastIndexOf("\n");
+    const status = raw.slice(nl + 1).trim();
+    const body = raw.slice(0, nl);
+    if (status !== "200") {
+      console.error("ERROR: JQL 搜尋失敗（HTTP " + status + "）");
+      process.exit(0);
+    }
+    const issues = (JSON.parse(body).issues) || [];
+    for (const i of issues) console.log(i.key);
+  '
+}
+
+# $1 = TICKET_ID；在 JIRA_GRILL_CHANNEL 貼觸發訊息。
+trigger_discord() {
+  TICKET_ID="$1"
+  BODY=$(node -e '
+    const rickId = process.env.RICK_DISCORD_USER_ID;
+    const ticket = process.argv[1];
+    process.stdout.write(JSON.stringify({
+      content: "<@" + rickId + "> 執行 jira-grill skill，參數：ticket " + ticket
+    }));
+  ' "$TICKET_ID")
+  STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bot ${JIRA_GRILL_TRIGGER_BOT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -X POST "https://discord.com/api/v10/channels/${JIRA_GRILL_CHANNEL}/messages" \
+    -d "$BODY")
+  if [ "$STATUS" != "200" ]; then
+    echo "ERROR: 觸發 ${TICKET_ID} 失敗（Discord HTTP ${STATUS}）"
+  else
+    echo "已觸發 ${TICKET_ID}"
+  fi
+}
+
+echo "== Query 1: 找新票（無時間窗口）=="
+NEW_JQL="${PROJECTS_CLAUSE} AND labels = \"grill-me\""
+NEW_TICKETS=$(jira_search "$NEW_JQL")
+if [ -n "$NEW_TICKETS" ]; then
+  echo "$NEW_TICKETS" | while IFS= read -r TICKET_ID; do
+    [ -z "$TICKET_ID" ] && continue
+    CLAIM_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -u "${JIRA_EMAIL}:${JIRA_TOKEN}" \
+      -X PUT "${JIRA_BASE_URL}/rest/api/2/issue/${TICKET_ID}" \
+      -H "Content-Type: application/json" \
+      -d '{"update":{"labels":[{"remove":"grill-me"},{"add":"grill-me-active"}]}}')
+    if [ "$CLAIM_STATUS" != "204" ]; then
+      echo "ERROR: 認領 ${TICKET_ID} 失敗（改 label HTTP ${CLAIM_STATUS}），跳過，下一輪重試"
+      continue
+    fi
+    trigger_discord "$TICKET_ID"
+  done
+else
+  echo "(無新票)"
+fi
+
+echo "== Query 2: 找進行中的票有沒有新回覆（updated >= -25m 粗篩）=="
+ACTIVE_JQL="${PROJECTS_CLAUSE} AND labels = \"grill-me-active\" AND updated >= \"-25m\""
+ACTIVE_TICKETS=$(jira_search "$ACTIVE_JQL")
+if [ -n "$ACTIVE_TICKETS" ]; then
+  echo "$ACTIVE_TICKETS" | while IFS= read -r TICKET_ID; do
+    [ -z "$TICKET_ID" ] && continue
+    RESPONSE=$(curl -s -u "${JIRA_EMAIL}:${JIRA_TOKEN}" -w '\n%{http_code}' \
+      "${JIRA_BASE_URL}/rest/api/2/issue/${TICKET_ID}/comment?orderBy=-created&maxResults=1")
+    NEEDS_TRIGGER=$(printf '%s' "$RESPONSE" | node -e '
+      const raw = require("fs").readFileSync(0, "utf8");
+      const nl = raw.lastIndexOf("\n");
+      const status = raw.slice(nl + 1).trim();
+      const body = raw.slice(0, nl);
+      if (status !== "200") {
+        console.error("ERROR: 抓最新留言失敗（" + process.argv[1] + "，HTTP " + status + "）");
+        console.log("skip");
+        process.exit(0);
+      }
+      const comments = (JSON.parse(body).comments) || [];
+      if (comments.length === 0) { console.log("trigger"); process.exit(0); }
+      console.log(comments[0].body.includes("— By Rick (jira-grill)") ? "skip" : "trigger");
+    ' "$TICKET_ID")
+    if [ "$NEEDS_TRIGGER" = "trigger" ]; then
+      trigger_discord "$TICKET_ID"
+    fi
+  done
+else
+  echo "(無需要處理的既有票)"
+fi
