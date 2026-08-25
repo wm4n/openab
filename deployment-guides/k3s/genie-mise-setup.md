@@ -47,9 +47,53 @@ kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
 
 版本號如果要換，改 `python@3.12` 這裡即可。
 
-## Step 4：裝 Flutter（需要額外掛 plugin，指令可能要微調）
+## Step 4：補 `xz` 解壓能力（Flutter SDK 是 `.tar.xz`，這個 image 裡沒有 `xz`）
 
-Flutter 不是 mise 的 core backend，要透過 asdf 相容 plugin 機制掛。先試:
+**2026-08-25 實測踩過**：這個 image（Debian 13/trixie）沒有 `xz` 執行檔，Flutter SDK 下載回來是 `.tar.xz`，解壓會直接失敗（`tar (child): xz: Cannot exec: No such file or directory`）。`apt`/`apt-get` 裝不了東西——`readOnlyRootFilesystem: true` 是 chart 裡真的寫死的 K8s 安全設定（`charts/openab/values.yaml`），連 `apt-get update` 都會因為要寫 `/var/lib/apt/lists/` 而報 `Read-only file system`。
+
+用 mise 剛裝好的 Python（`lzma` 是標準庫，python-build-standalone 這種預編譯版本已經內建）寫一個最小的 `xz` shim，放進 PATH 上的 `~/.local/bin/`：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
+cat > ~/.local/bin/xz << '"'"'PYEOF'"'"'
+#!/usr/bin/env python3
+import sys, lzma
+
+def main():
+    args = sys.argv[1:]
+    files = [a for a in args if not a.startswith("-")]
+    if files:
+        for f in files:
+            with open(f, "rb") as fh:
+                data = fh.read()
+            sys.stdout.buffer.write(lzma.decompress(data))
+    else:
+        data = sys.stdin.buffer.read()
+        sys.stdout.buffer.write(lzma.decompress(data))
+
+if __name__ == "__main__":
+    main()
+PYEOF
+chmod +x ~/.local/bin/xz
+which xz
+'
+```
+
+驗證能正確解壓（不是只放好檔案就當作成功）：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
+  printf "hello mise" | python3 -c "import sys,lzma; sys.stdout.buffer.write(lzma.compress(sys.stdin.buffer.read()))" > /tmp/test.xz
+  xz -dc /tmp/test.xz
+  echo
+'
+```
+
+預期輸出 `hello mise`。這個 shim 只支援解壓（GNU tar 解壓縮時的呼叫方式），不支援壓縮/其他 `xz` flag——這裡只需要解壓，故意不做更多。
+
+## Step 5：裝 Flutter
+
+Flutter 不是 mise 的 core backend，要透過 asdf 相容 plugin 機制掛。實測 `mise plugin add flutter` 直接能解到正確的 plugin（`mise-plugins/mise-flutter.git`），不用另外查名稱：
 
 ```bash
 kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
@@ -59,21 +103,7 @@ kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
 '
 ```
 
-如果 `mise plugin add flutter` 找不到 plugin(mise 內建的 plugin 捷徑清單可能沒收錄,或名稱不是這個),先查可用的名稱:
-
-```bash
-kubectl exec deployment/openab-claude-genie -n cac -- sh -c 'mise plugin ls-remote | grep -i flutter'
-```
-
-找到正確名稱後改成:
-
-```bash
-mise plugin add flutter <上面查到的 git url>
-```
-
-再重跑 Step 4 剩下的指令。
-
-## Step 5：驗證 shims 生效、確認會自動吃到 PATH
+## Step 6：驗證 shims 生效、確認會自動吃到 PATH
 
 ```bash
 kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
@@ -86,7 +116,7 @@ kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
 
 `which` 的結果應該指向 `/home/node/.local/share/mise/shims/python`、`.../flutter`，不是系統路徑——這代表 shim 生效了，而不是巧合裝到系統既有的版本。
 
-## Step 6：驗證 per-repo 版本切換
+## Step 7：驗證 per-repo 版本切換
 
 找一個(或建一個測試用)帶 `.tool-versions` 或 `.mise.toml` 宣告 python/flutter 版本的 repo：
 
@@ -102,7 +132,7 @@ kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
 
 `python --version`/`flutter --version` 應該吻合這個 repo 宣告的版本，不是 Step 3/4 設的全域預設版本。換一個沒有宣告檔的目錄再跑一次，這次應該落回全域預設版本，不出錯。
 
-## Step 7：確認 Genie 會自己執行
+## Step 8：確認 Genie 會自己執行
 
 部署新版 `Genie-CLAUDE_v2.md`（已經加了「開工前先跑 `mise install`」這條）：
 
@@ -118,5 +148,5 @@ kubectl exec deployment/openab-claude-genie -n cac -- grep -c "mise install" /ho
 ## 已知限制（Phase 1）
 
 - 這階段裝的 Flutter 只能做不需要 Android/iOS 工具鏈的事（`flutter analyze`/`dart analyze`/純 dart 邏輯的 `flutter test`）。要真的 `flutter build apk` 出安裝檔，需要 Android SDK，留給之後的 Android CLI phase。
-- PHP、Android CLI 尚未安裝，之後補上時沿用同一套 shims 機制，不用重新設計。
-- Flutter 的 mise plugin 確切來源在寫這份文件時未實測，Step 4 附了查詢備援指令。
+- PHP、Android CLI 尚未安裝，之後補上時沿用同一套 shims 機制，不用重新設計；但如果它們的安裝套件也是 `.tar.xz`（很可能），Step 4 裝的 `xz` shim 要留著，別在之後清理環境時誤刪。
+- `~/.local/bin/xz` 是自己寫的 shim，只支援解壓（GNU tar 呼叫時的用法），不是真正完整的 `xz` 工具——如果之後某個 mise plugin 需要用 `xz` 做壓縮（而不是解壓已下載好的檔案），這個 shim 不夠用，要再擴充。這個限制本質上是這個共用 image 沒有 `xz` 造成的環境缺口，不是 mise/Flutter/Python 本身的問題；如果未來 `ghcr.io/104corp/openab` 這個共用 image 補裝了 `xz`，這個 shim 可以直接拿掉，PATH 上 `~/.local/bin` 排在系統路徑前面所以會自動切換回真正的 `xz`。
