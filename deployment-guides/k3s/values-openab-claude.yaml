@@ -142,7 +142,12 @@ agents:
       allowedUsers: []
       allowBotMessages: "mentions"
       trustedBotIds:
-        ["1521431781641818202", "1519868630064562278", "1522253638465093752"]
+        [
+          "1521431781641818202",
+          "1519868630064562278",
+          "1522253638465093752",
+          "1541617131442147438",
+        ] # Morty, Rick, Summer, jira-grill-trigger
     secretEnv:
       - { name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN }
       - {
