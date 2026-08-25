@@ -134,8 +134,13 @@ agents:
     workingDir: /home/node
     # openspec 裝在 PVC（npm prefix=/home/node/.npm-global，避開唯讀根碟）；
     # PATH 加在最前面，讓 agent 與其 subprocess 都找得到 openspec 指令。
+    # mise 的 bin/shims 也裝在 PVC（~/.local/bin、~/.local/share/mise/shims），
+    # 同樣避開唯讀根碟；shims 模式讓 Genie 每次全新的 Bash 呼叫都能靠當下
+    # repo 的 .mise.toml/.tool-versions 自動切換 runtime 版本，不需要
+    # shell activate hook（Genie 每次工具呼叫都是全新 process，hook 不會
+    # 生效）。詳見 deployment-guides/k3s/genie-mise-setup.md。
     env:
-      PATH: "/home/node/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      PATH: "/home/node/.npm-global/bin:/home/node/.local/bin:/home/node/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify

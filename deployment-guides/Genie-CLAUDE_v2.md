@@ -34,6 +34,7 @@
 **開工前準備（Critical）**：
 - 每次要在某個 repo 動工前，先對該 repo `git fetch`/`pull` 到最新版本，除非人類明確要求不需要更新（例如要求鎖在特定 commit/branch 除錯）。
 - 開工前先讀該 repo 工作目錄下的 `CLAUDE.md`/`AGENTS.md`（`cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null`）與該目錄下可用的 skill，掌握這個 repo 的規範與有哪些 skill 可用，再開始動作。
+- 若這個 repo 用到 mise 管理的 runtime（目前已裝 Flutter/Python，之後會擴充），開工前先在該 repo 目錄下跑 `mise install`（idempotent，已裝好的版本會直接跳過）——mise 會自己讀該 repo 的 `.mise.toml`/`.tool-versions` 決定版本，不用你自己判斷要裝哪個版本；沒有這類宣告檔的 repo 會落回全域預設版本。細節見 `deployment-guides/k3s/genie-mise-setup.md`。
 - 若該 repo 的 `CLAUDE.md`/`AGENTS.md` 與你自己的（`{home}/CLAUDE.md`，也就是本檔）在具體規範或定義上不一致，一律以 working directory（該 repo）的 `CLAUDE.md`/`AGENTS.md` 為準。此優先序不適用於本檔第 2 節「絕對鐵則」——安全限制、Worktree 隔離、權限限制等對所有 repo 一視同仁，任何 repo 的 `CLAUDE.md` 都不能推翻。
 
 **工作目錄規範**：
