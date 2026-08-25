@@ -148,8 +148,16 @@ agents:
     # platform-tools 直接寫死進 PATH、ANDROID_HOME 指向 mise 管理的
     # SDK 安裝路徑（含 mise plugin 版本號 23.0，之後升級這個 plugin
     # 版本要記得同步改這裡）。
+    # ⚠️ 2026-08-25 拿真的 104cac-M104-android-v2 repo 實測踩過：LANG/
+    # LC_ALL 完全沒設，image 只有 C/C.utf8/POSIX 三個 locale（唯讀根碟
+    # 裝不了新的），非 ASCII（中文）檔名會被 Gradle/Java 讀成亂碼導致
+    # 任務失敗（Jenkinsfile 自己也特地設了 LANG=zh_TW.UTF-8，可見這個
+    # repo 真的有非 ASCII 檔名）。設 C.utf8 就解決，不需要真的裝中文
+    # locale——只是要 UTF-8 位元組處理，不需要翻譯/排序規則。
     env:
       PATH: "/home/node/.npm-global/bin:/home/node/.local/share/mise/shims:/home/node/.local/bin:/home/node/.local/share/mise/installs/android-sdk/23.0/platform-tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      LANG: "C.utf8"
+      LC_ALL: "C.utf8"
       ANDROID_HOME: "/home/node/.local/share/mise/installs/android-sdk/23.0"
       ANDROID_SDK_ROOT: "/home/node/.local/share/mise/installs/android-sdk/23.0"
     discord:
