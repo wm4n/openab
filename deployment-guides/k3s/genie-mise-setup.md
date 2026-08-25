@@ -9,7 +9,7 @@
 
 ## Step 1：values.yaml 加 PATH，helm upgrade
 
-`values-openab-claude.yaml` 的 genie 區塊已經改好（`env.PATH` 加了 `/home/node/.local/bin` 跟 `/home/node/.local/share/mise/shims`），commit 也已經推上去了。跑:
+`values-openab-claude.yaml` 的 genie 區塊已經改好（`env.PATH` 加了 `/home/node/.local/share/mise/shims` 跟 `/home/node/.local/bin`），commit 也已經推上去了。跑:
 
 ```bash
 cd ~/william/github/openab/deployment-guides/k3s
@@ -19,13 +19,15 @@ helm upgrade openab-claude oci://ghcr.io/openabdev/charts/openab --version 0.9.0
 kubectl rollout status deployment/openab-claude-genie -n cac
 ```
 
-驗證 PATH 有生效:
+驗證 PATH 有生效、順序正確:
 
 ```bash
 kubectl exec deployment/openab-claude-genie -n cac -- sh -c 'echo $PATH'
 ```
 
-預期看到 `/home/node/.local/bin` 跟 `/home/node/.local/share/mise/shims` 都在裡面。
+預期看到 `/home/node/.local/share/mise/shims` 排在 `/home/node/.local/bin` **前面**。
+
+**2026-08-25 實測踩過**：一開始順序寫反了（`.local/bin` 排在 shims 前面），結果 `.local/bin` 底下既有的 `uv`（跟這次無關的既有 Python 套件管理工具）建的 `python`/`python3`/`python3.12` symlink 蓋掉了 mise 管的版本——`which python` 指到 `uv` 裝的版本，不是 mise 裝的，per-repo 版本切換整套失效但不會報錯，很容易沒發現。**shims 目錄一定要排在 `.local/bin` 前面**，`mise` 本體指令仍然透過 `.local/bin` 找得到，不受影響。
 
 ## Step 2：安裝 mise 本體
 
