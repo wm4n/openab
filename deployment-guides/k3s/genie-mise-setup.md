@@ -1,10 +1,10 @@
-# Genie 裝 mise + Flutter + Python（Phase 1）
+# Genie 裝 mise + Flutter + Python + Android CLI
 
 ## 為什麼這樣裝
 
 - Genie 的 pod 是唯讀根檔案系統，只有 `/home/node`（PVC）可寫。mise 預設就裝在 home 目錄下，不需要 root，天生跟這個限制相容。
 - mise 有兩種啟用模式：`activate`（shell hook，需要持續存在的 shell session）跟 `shims`（在 `~/.local/share/mise/shims/` 產生假執行檔，每次執行時才讀當前目錄的版本宣告檔）。Genie 每次工具呼叫都是全新、非互動的 process，`activate` 的 hook 不會生效，**只能用 `shims` 模式**。
-- 這次先裝 Flutter + Python（Phase 1）。PHP、Android CLI 之後再補（Android SDK 涉及授權接受跟龐大的 build-tools，另外處理）。
+- Phase 1 先裝 Flutter + Python，Phase 2 補上 Android CLI（見文件後半）。PHP 之後再補。
 - 只裝 mise 本體，實際 runtime 版本一律「隨用隨裝」：Genie 進 repo 前會自己跑 `mise install`（已寫進 `Genie-CLAUDE_v2.md`），mise 讀 repo 自己的 `.mise.toml`/`.tool-versions` 決定裝哪個版本，裝過的版本留在 PVC 上永久快取。沒有宣告版本的 repo 會落回這裡設的全域預設版本。
 
 ## Step 1：values.yaml 加 PATH，helm upgrade
@@ -147,8 +147,78 @@ kubectl exec deployment/openab-claude-genie -n cac -- grep -c "mise install" /ho
 
 預期輸出 `>= 1`。之後讓 Genie 實際處理一個真實 repo，確認它會自己跑 `mise install`，不用人類提醒。
 
-## 已知限制（Phase 1）
+## 已知限制（Phase 1：Flutter + Python）
 
-- 這階段裝的 Flutter 只能做不需要 Android/iOS 工具鏈的事（`flutter analyze`/`dart analyze`/純 dart 邏輯的 `flutter test`）。要真的 `flutter build apk` 出安裝檔，需要 Android SDK，留給之後的 Android CLI phase。
-- PHP、Android CLI 尚未安裝，之後補上時沿用同一套 shims 機制，不用重新設計；但如果它們的安裝套件也是 `.tar.xz`（很可能），Step 4 裝的 `xz` shim 要留著，別在之後清理環境時誤刪。
+- 這階段裝的 Flutter 只能做不需要 Android/iOS 工具鏈的事（`flutter analyze`/`dart analyze`/純 dart 邏輯的 `flutter test`）。要真的 `flutter build apk` 出安裝檔，需要 Android SDK，見下方 Phase 2。
+- PHP 尚未安裝，之後補上時沿用同一套 shims 機制，不用重新設計；但如果它的安裝套件也是 `.tar.xz`（很可能），Step 4 裝的 `xz` shim 要留著，別在之後清理環境時誤刪。
+
+# Phase 2：Android CLI
+
+## 為什麼這塊不太一樣
+
+Android SDK 跟 Flutter/Python 的版本切換模式不同：mise 的 `android-sdk` plugin 管的是「command-line-tools 這層工具本身」的版本，實際專案關心的 `platforms;android-34`/`build-tools;34.0.0` 這類版本是透過 `sdkmanager`（現在改叫「Android CLI」，Google 2026 把 `sdkmanager` 換掉了，指令相容）在**同一個 SDK 安裝目錄下多版本並存**，不是靠 mise 切換整個 SDK——這代表 `platform-tools`/`build-tools` 不會被 mise 的 shims 機制自動處理，要手動加進 PATH。另外 `sdkmanager` 本身是 Java 程式，要先裝 Java。
+
+## Step 1：裝 Java（sdkmanager 依賴）
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
+  mise use -g java@17
+  mise exec -- java -version
+'
+```
+
+## Step 2：裝 android-sdk plugin
+
+**2026-08-25 實測**：`mise plugin ls-remote | grep -i android` 找到的正確名稱是 `android-sdk`（`mise-plugins/vfox-android-sdk`），不用另外查。這個 image 已經有 `unzip`（Android SDK 套件是 `.zip`，跟 Flutter 的 `.tar.xz` 不同，不會踩 Step 4 那個 `xz` 坑）。
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
+  mise plugin add android-sdk
+  mise use -g android-sdk@latest
+  which sdkmanager
+'
+```
+
+記下 `mise use` 印出的版本號（例如 `23.0`），後面 Step 4 的路徑要對上這個版本。
+
+## Step 3：接受授權、裝 platform-tools/build-tools/platform
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
+  yes | sdkmanager --licenses
+  sdkmanager --install "platform-tools" "build-tools;34.0.0" "platforms;android-34"
+'
+```
+
+要裝其他 API level/build-tools 版本，改這裡的套件名稱字串即可，可以裝多個版本並存，之後專案 gradle 設定自己選要用哪個。
+
+## Step 4：把 `platform-tools` 加進 PATH、設 `ANDROID_HOME`
+
+`adb`/`fastboot` 裝在 `platform-tools/` 底下，mise 的 shim 不會自動收，要手動加進 `values-openab-claude.yaml` 的 genie `env`（已經改好、commit 也推了）：
+
+```yaml
+PATH: "...:/home/node/.local/share/mise/installs/android-sdk/<版本號>/platform-tools:..."
+ANDROID_HOME: "/home/node/.local/share/mise/installs/android-sdk/<版本號>"
+ANDROID_SDK_ROOT: "/home/node/.local/share/mise/installs/android-sdk/<版本號>"
+```
+
+`<版本號>` 換成 Step 2 記下的版本（目前是 `23.0`）。**這個路徑寫死了版本號**：之後升級 `android-sdk` plugin 版本，要記得同步改這三個值，不會自動跟著換。
+
+```bash
+cd ~/william/github/openab/deployment-guides/k3s
+git pull
+helm upgrade openab-claude oci://ghcr.io/openabdev/charts/openab --version 0.9.0-beta.1 -n cac \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml
+kubectl rollout status deployment/openab-claude-genie -n cac
+kubectl exec deployment/openab-claude-genie -n cac -- sh -c '
+  which adb
+  adb --version
+'
+```
+
+## 已知限制（Phase 2：Android CLI）
+
+- `platform-tools`/`build-tools` 版本不受 mise 管理，寫死在 PATH/`ANDROID_HOME` 裡，跟著單一 SDK 安裝目錄走——這是 Android 工具鏈本身的慣例（多版本並存、靠 Gradle 設定挑版本），不是這次設計的缺陷。
+- `sdkmanager --licenses` 用 `yes |` 自動接受，等同人類手動全部按 yes；沒有針對單一授權條款做細緻控制。
+- Java 版本目前固定裝 `17`；如果之後某個 repo 需要不同 Java 版本編譯，Java 本身是 mise core backend，可以照 Flutter/Python 那套 per-repo `.mise.toml` 機制正常切換，不受這裡的限制影響（只有 Android SDK 這塊例外）。
 - `~/.local/bin/xz` 是自己寫的 shim，只支援解壓（GNU tar 呼叫時的用法），不是真正完整的 `xz` 工具——如果之後某個 mise plugin 需要用 `xz` 做壓縮（而不是解壓已下載好的檔案），這個 shim 不夠用，要再擴充。這個限制本質上是這個共用 image 沒有 `xz` 造成的環境缺口，不是 mise/Flutter/Python 本身的問題；如果未來 `ghcr.io/104corp/openab` 這個共用 image 補裝了 `xz`，這個 shim 可以直接拿掉，PATH 上 `~/.local/bin` 排在系統路徑前面所以會自動切換回真正的 `xz`。

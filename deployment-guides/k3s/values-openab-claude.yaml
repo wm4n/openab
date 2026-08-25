@@ -142,8 +142,16 @@ agents:
     # ⚠️ shims 目錄要排在 .local/bin 前面：.local/bin 底下還有 uv（既有、
     # 跟 mise 無關）建的 python symlink，2026-08-25 實測順序反了會被 uv
     # 的版本蓋掉，mise 管的版本切換整套失效。
+    # Android SDK（mise plugin android-sdk）跟 Flutter/Python 不一樣：
+    # 版本切換粒度在 sdkmanager 那層（裝哪些 platforms;android-XX/
+    # build-tools;XX，多版本並存），不是靠 mise 切整個 SDK，所以
+    # platform-tools 直接寫死進 PATH、ANDROID_HOME 指向 mise 管理的
+    # SDK 安裝路徑（含 mise plugin 版本號 23.0，之後升級這個 plugin
+    # 版本要記得同步改這裡）。
     env:
-      PATH: "/home/node/.npm-global/bin:/home/node/.local/share/mise/shims:/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      PATH: "/home/node/.npm-global/bin:/home/node/.local/share/mise/shims:/home/node/.local/bin:/home/node/.local/share/mise/installs/android-sdk/23.0/platform-tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      ANDROID_HOME: "/home/node/.local/share/mise/installs/android-sdk/23.0"
+      ANDROID_SDK_ROOT: "/home/node/.local/share/mise/installs/android-sdk/23.0"
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
