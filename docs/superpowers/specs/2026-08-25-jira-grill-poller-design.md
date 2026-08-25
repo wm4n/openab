@@ -133,6 +133,15 @@ Jira(留言貼回,label 轉為 grill-me-done 或維持 grill-me-active)
 
 ## Poller 判斷邏輯(每次執行)
 
+> **2026-08-25 rollout 實測更正**:實作時發現 Jira 的
+> `GET /rest/api/2/search`(連同 v3 GET 版本)已被 Atlassian 下架
+> (呼叫回傳 HTTP 410,錯誤訊息直接指向遷移指引),兩條 JQL 的實際實作
+> 都改用 `POST /rest/api/3/search/jql`(request body
+> `{jql, fields, maxResults}`,回應改用 `issues[].key` +
+> `nextPageToken`/`isLast` 分頁,不再有 `startAt`/`total`)。下面描述的
+> JQL 查詢邏輯本身不變,只是 wire format 換了;`maxResults: 50`、只取
+> 第一頁不做分頁跟進,細節見 `poller.sh` 原始碼註解。
+
 用**兩條獨立的 JQL**分別處理「新票」與「既有進行中的票」,不合併成一條
 ——原因見下方 Query 1 的說明。
 

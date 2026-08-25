@@ -26,10 +26,20 @@ data:
     ')
 
     # $1 = JQL；印出符合的 ticket key，一行一個。搜尋失敗印錯誤到 stderr、成功但無結果不印任何東西。
+    # 舊的 GET /rest/api/2/search 已被 Atlassian 下架（HTTP 410），改用
+    # POST /rest/api/3/search/jql（官方遷移指引指定的替代端點）。回應格式
+    # 改用 nextPageToken/isLast 分頁，這裡只取第一頁（maxResults 50）——
+    # 本 poller 的查詢範圍窄（單一 project 白名單 + 特定 label），單頁
+    # 已足夠，不做分頁跟進。
     jira_search() {
-      ENCODED_JQL=$(node -e 'console.log(encodeURIComponent(process.argv[1]))' "$1")
+      SEARCH_BODY=$(node -e '
+        const body = { jql: process.argv[1], fields: ["key"], maxResults: 50 };
+        process.stdout.write(JSON.stringify(body));
+      ' "$1")
       RESPONSE=$(curl -s -u "${JIRA_EMAIL}:${JIRA_TOKEN}" -w '\n%{http_code}' \
-        "${JIRA_BASE_URL}/rest/api/2/search?jql=${ENCODED_JQL}&fields=key")
+        -X POST "${JIRA_BASE_URL}/rest/api/3/search/jql" \
+        -H "Content-Type: application/json" \
+        -d "$SEARCH_BODY")
       printf '%s' "$RESPONSE" | node -e '
         const raw = require("fs").readFileSync(0, "utf8");
         const nl = raw.lastIndexOf("\n");
