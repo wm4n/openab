@@ -78,6 +78,26 @@ kubectl exec deployment/openab-claude-genie -n cac -c openab -- docker version
 ```
 應該同時看到 Client 與 Server 兩段版本資訊（Server 就是隔壁 dind sidecar）。
 
+## Step 3.5：裝 `make`（genie 主 image 沒有這個指令）
+
+**2026-09-01 實測踩過**：genie 主 container 的 image 沒裝 `make`，而多數 PHP repo 的 Makefile（`build`/`run`/`composer`/`bash` 這類 target）是設計成在**主 container 自己的 shell**執行（負責下 `docker build`/`docker run`/`docker exec`），不是進 container 裡面才需要，所以這一步是必要的，跟目標 repo 用哪種架構的 image 無關。
+
+用剛裝好的 docker，抓一份跟主 image 同一個 distro（Debian 13/trixie）的 `make`，避開 glibc 版本不相容的風險：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -c openab -- sh -c '
+  docker run --rm -v /home/node/.local/bin:/out debian:trixie \
+    sh -c "apt-get update -qq && apt-get install -y -qq make && cp /usr/bin/make /out/make"
+  chmod +x ~/.local/bin/make
+  which make
+  make --version
+'
+```
+
+> ⚠️ 這個手法可以延伸用在之後任何「genie 主 image 缺什麼指令」的情況——用 dind 抓一個同 distro 的公開 image、`apt-get install` 裝好、複製二進位檔到共用 PVC 上的 `~/.local/bin`，不用等 image 本身重新 build。
+>
+> ⚠️ **實測踩過**：這樣複製出來的檔案擁有者是 root（dind daemon 本身是 privileged/root 在跑該容器），主 container 是 UID 1000 非 root，`chmod`/`chown` 這個檔案會報 `Operation not permitted`。不影響使用——只要來源檔案本來就有執行權限位元，UID 1000 讀取/執行都沒問題，只是不能再對它做權限異動，遇到報錯不用當成失敗。
+
 ## Step 4：登入私有 registry（複用既有憑證，不申請新的）
 
 `ghcr.io/104corp/*` 的私有 base image需要登入。叢集已經有 `ghcr-104corp` 這個 k8s secret（給 openab 自己拉 image 用），直接借用同一組帳密：
@@ -93,7 +113,26 @@ kubectl exec -it deployment/openab-claude-genie -n cac -c openab -- \
 ```
 登入資訊會寫進 `~/.docker/config.json`（在 PVC 上），pod 重啟不會遺失，之後不用重登。
 
-## Step 5：拿範例 repo 實測一輪全流程
+## Step 5：先用自建的最小 fixture 驗證機制本身（推薦，跟目標 repo 分開）
+
+不用一開始就挑戰真實 repo（可能會遇到私有 image 架構、composer 私有套件庫等額外變數），先用一份原生 amd64、公開、無需任何私有憑證的最小 Dockerfile+Makefile，驗證「DinD、bind mount（兩個 container 掛同一顆 PVC 同路徑）、docker exec、`make`」這條鏈路本身是通的：
+
+```bash
+kubectl exec -it deployment/openab-claude-genie -n cac -c openab -- sh -c '
+mkdir -p /home/node/docker-verify && cd /home/node/docker-verify
+cat > Dockerfile <<EOF
+FROM php:8.2-cli
+WORKDIR /var/www/html
+CMD ["sleep", "infinity"]
+EOF
+printf "build:\n\tdocker build -t genie-docker-verify .\nrun:\n\tdocker run --name genie-docker-verify-c -d -v \$(CURDIR):/var/www/html genie-docker-verify\ntest:\n\tdocker exec genie-docker-verify-c php test.php\nclean:\n\tdocker rm -f genie-docker-verify-c\n" > Makefile
+printf "<?php echo \"genie docker pipeline OK\\n\";\n" > test.php
+make build && make run && make test && make clean
+'
+```
+應該印出 `genie docker pipeline OK`。**2026-09-01 實測通過**——這一步跟目標 repo 是不是私有／什麼架構完全無關，先確認這個過再去查真實 repo 的問題會比較好排查。
+
+## Step 6：拿真實 repo 實測（可能會遇到 repo 自己的環境問題，跟本文件的機制無關）
 
 ```bash
 kubectl exec -it deployment/openab-claude-genie -n cac -c openab -- sh -c '
@@ -101,10 +140,10 @@ kubectl exec -it deployment/openab-claude-genie -n cac -c openab -- sh -c '
   git clone https://github.com/104corp/104cac-appapi-m104-facade.git 2>/dev/null \
     || git -C 104cac-appapi-m104-facade pull
   cd 104cac-appapi-m104-facade
-  cd docker/local && docker build -t appapi-image-8.2 . ; cd ../..
-  make run
-  GITHUB_ACCESS_TOKEN=$(gh auth token) make composer
-  docker exec appapi-m104-dev-8.2 make unit
+  cd docker/local && docker build -t appapi-image-8.2 . && cd ../.. \
+  && make run \
+  && GITHUB_ACCESS_TOKEN=$(gh auth token) make composer \
+  && docker exec appapi-m104-dev-8.2 make unit
 '
 ```
 `make unit` 應該能正常跑完 phpunit（不是連線失敗或 command not found）。測完記得清掉：
@@ -113,7 +152,11 @@ kubectl exec -it deployment/openab-claude-genie -n cac -c openab -- sh -c '
 kubectl exec deployment/openab-claude-genie -n cac -c openab -- docker rm -f appapi-m104-dev-8.2
 ```
 
-## Step 6：部署新版 persona
+> ⚠️ **2026-09-01 實測踩過**：`104cac-appapi-m104-facade` 這個範例 repo 的私有 base image（`ghcr.io/104corp/104cac-php-docker-image:mac-m104-appapi-20240316`）**只發布過 arm64 版本**，在這台 amd64 節點上 `docker build` 會在第一個非 FROM 的 RUN 就報 `exec format error`。這是這顆 image 本身的限制，不是 Step 1～5 這套 DinD 機制的問題（Step 5 的 fixture 已經證明機制本身沒問題）。要跑這個特定 repo，還沒實測過的兩條路：
+> 1. 裝 QEMU 模擬層：`docker run --rm --privileged tonistiigi/binfmt --install arm64`（dind 本身 privileged、跟節點共用 kernel，註冊後對整個節點生效一次），`docker build` 時加 `--platform=linux/arm64`。
+> 2. 請 104corp 團隊補發一個 amd64 版本的 base image tag（沒有模擬開銷，長期較乾淨，但不是這邊能決定的事）。
+
+## Step 7：部署新版 persona
 
 `Genie-CLAUDE_v2.md` 已經加了「沒有 mise 宣告檔、但有 Dockerfile+Makefile 時改走 Docker 流程、用完要 `docker rm -f` 清乾淨」這條規則，commit 也推了：
 
@@ -130,3 +173,6 @@ kubectl exec -i deployment/openab-claude-genie -n cac -- sh -c '
 - 目前只驗證單一 Dockerfile/image 這種模式（無 `docker-compose` 多服務）。之後若真的遇到 `docker-compose.yml` 的 repo，這套 dind sidecar 一樣能跑 `docker compose`（同一個 daemon），但還沒實測過，遇到再視情況調整 resource limit。
 - dind sidecar 的 resource limit（`requests: 250m/256Mi`、`limits: 2/3Gi`）是保守預設值，這台是單節點共用叢集，建議之後用 `kubectl top pod -n cac` 看實際用量再調整。
 - `GITHUB_ACCESS_TOKEN=$(gh auth token)` 這個寫法依賴 genie 當下的 gh 登入 session（104cac 帳號）；如果之後 gh 帳號被登出或換帳號，這個指令會失敗，需要先確認 `gh auth status` 正常。
+- 透過 dind 執行 `docker run`/`docker exec` 建立出來的檔案擁有者是 root，genie 主 container 是 UID 1000，能讀/執行但不能再 `chmod`/`chown`（見 Step 3.5）。
+- **2026-09-01 實測踩過**：genie 這顆 PVC 檔案量很大（40 萬+），每次 pod 重建（`helm upgrade`、node 重開機等）kubelet 都要重新設定一次 `fsGroup` 權限，實測耗時約 6～9 分鐘，這是既有特性、跟這次 docker 改動無關，之後 genie pod 常態性要重啟的話會是個煩人的等待，可考慮之後另外評估 `fsGroupChangePolicy: OnRootMismatch`。
+- `104cac-appapi-m104-facade` 這個範例 repo 卡在私有 base image 只有 arm64 版本，QEMU 模擬或請 104corp 補 amd64 tag 這兩條路都還沒實測驗證，是待辦（見 Step 6 註記）。
