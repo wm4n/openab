@@ -200,13 +200,21 @@ agents:
       storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
       size: 60Gi
     # 2026-09-01 新增：docker-in-docker sidecar，只給 genie 用（不動 Rick/Morty）。
-    # privileged 只在這個 container 生效，不影響 pod 層級的 podSecurityContext
-    # （那個是 release 全域，Rick/Morty 仍維持 RuntimeDefault、非 privileged）。
+    # privileged/runAsUser 只在這個 container 生效，不影響 pod 層級的
+    # podSecurityContext（那個是 release 全域，Rick/Morty 仍維持
+    # RuntimeDefault、非 privileged、非 root）。
+    # ⚠️ 2026-09-01 實測踩過：只設 privileged: true 不夠，dind 仍會沿用
+    # pod-level 的 runAsUser: 1000（release 全域預設），dockerd 本身一定要
+    # 用 root 執行才能掛 cgroup/建 namespace，用 UID 1000 啟動會瞬間
+    # exit code 1（啟動到結束 0 秒，來不及吐 log）。這裡明確覆蓋成 root。
     extraContainers:
       - name: dind
         image: docker:27-dind
         securityContext:
           privileged: true
+          runAsUser: 0
+          runAsGroup: 0
+          runAsNonRoot: false
         env:
           - name: DOCKER_TLS_CERTDIR
             value: "" # 同 pod 內部流量、不出網路，關掉 TLS
