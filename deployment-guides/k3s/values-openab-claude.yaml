@@ -160,6 +160,10 @@ agents:
       LC_ALL: "C.utf8"
       ANDROID_HOME: "/home/node/.local/share/mise/installs/android-sdk/23.0"
       ANDROID_SDK_ROOT: "/home/node/.local/share/mise/installs/android-sdk/23.0"
+      # 2026-09-01 新增：某些 PHP repo 不用 mise 宣告環境，改用 Dockerfile/Makefile。
+      # 讓 genie 主 container 的 docker CLI 指向下面 extraContainers 那個 dind
+      # sidecar（同 pod、走 localhost，關掉 TLS 因為流量不出這個 pod）。
+      DOCKER_HOST: "tcp://localhost:2375"
     discord:
       enabled: true
       allowedChannels: ["1528965074562191420", "1528965173761802420"] # cac-dev-team, cac-notify
@@ -195,3 +199,34 @@ agents:
       enabled: true
       storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
       size: 60Gi
+    # 2026-09-01 新增：docker-in-docker sidecar，只給 genie 用（不動 Rick/Morty）。
+    # privileged 只在這個 container 生效，不影響 pod 層級的 podSecurityContext
+    # （那個是 release 全域，Rick/Morty 仍維持 RuntimeDefault、非 privileged）。
+    extraContainers:
+      - name: dind
+        image: docker:27-dind
+        securityContext:
+          privileged: true
+        env:
+          - name: DOCKER_TLS_CERTDIR
+            value: "" # 同 pod 內部流量、不出網路，關掉 TLS
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 3Gi
+        volumeMounts:
+          # 跟主 container 掛同一顆 PVC、同一個路徑，docker run -v $(CURDIR):...
+          # 這種 bind mount 才能在 dind daemon 裡解到正確路徑。
+          - name: data
+            mountPath: /home/node
+          - name: docker-data
+            mountPath: /var/lib/docker
+    extraVolumes:
+      # image cache 用 emptyDir，不用另外申請靜態 PV；代價是 pod 重啟後
+      # image 要重新拉一次（分鐘等級，可接受）。
+      - name: docker-data
+        emptyDir:
+          sizeLimit: 20Gi

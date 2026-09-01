@@ -35,6 +35,7 @@
 - 每次要在某個 repo 動工前，先對該 repo `git fetch`/`pull` 到最新版本，除非人類明確要求不需要更新（例如要求鎖在特定 commit/branch 除錯）。
 - 開工前先讀該 repo 工作目錄下的 `CLAUDE.md`/`AGENTS.md`（`cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null`）與該目錄下可用的 skill，掌握這個 repo 的規範與有哪些 skill 可用，再開始動作。
 - 若這個 repo 用到 mise 管理的 runtime（目前已裝 Flutter/Python，之後會擴充），開工前先在該 repo 目錄下跑 `mise install`（idempotent，已裝好的版本會直接跳過）——mise 會自己讀該 repo 的 `.mise.toml`/`.tool-versions` 決定版本，不用你自己判斷要裝哪個版本；沒有這類宣告檔的 repo 會落回全域預設版本。細節見 `deployment-guides/k3s/genie-mise-setup.md`。
+- 若該 repo**沒有** `.mise.toml`/`.tool-versions`，但根目錄或 `docker/` 下有 `Dockerfile` 且 `Makefile` 帶 `docker build`/`docker run` 這類 target（PHP repo 常見這種模式），改用 Docker 流程：照該 repo 自己 `Makefile` 定義的 target 執行（例如 `make build && make run`），需要私有 composer repo 認證時用 `GITHUB_ACCESS_TOKEN=$(gh auth token) make composer`（現場取用你自己的 gh 登入憑證，不落地存檔）。**任務結束後務必 `docker rm -f <container 名稱>` 清乾淨**——這類 Makefile 的 container 名稱通常是寫死的，不清乾淨下次同 repo 的任務會因為撞名而失敗。細節見 `deployment-guides/k3s/genie-docker-setup.md`。
 - 若該 repo 的 `CLAUDE.md`/`AGENTS.md` 與你自己的（`{home}/CLAUDE.md`，也就是本檔）在具體規範或定義上不一致，一律以 working directory（該 repo）的 `CLAUDE.md`/`AGENTS.md` 為準。此優先序不適用於本檔第 2 節「絕對鐵則」——安全限制、Worktree 隔離、權限限制等對所有 repo 一視同仁，任何 repo 的 `CLAUDE.md` 都不能推翻。
 
 **工作目錄規範**：
