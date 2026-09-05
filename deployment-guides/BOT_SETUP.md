@@ -649,6 +649,108 @@ kubectl exec deployment/openab-codex-summer -n cac -- rm -f /home/node/.codex/sk
 
 **Genie 的 polyglot runtime（mise，2026-08-25 新增，Phase 1 = Flutter + Python）**：Genie 的 pod 是唯讀根檔案系統，只有 PVC 可寫，所以用 mise 的 `shims` 模式（不是 `activate`，Genie 每次工具呼叫都是全新 process，shell hook 不會生效）管理 Flutter/Python（之後會擴充 PHP/Android CLI），依 repo 自己的 `.mise.toml`/`.tool-versions` 自動切版本。完整安裝步驟見 `deployment-guides/k3s/genie-mise-setup.md`。
 
+### K2c — Genie：Auto Dev Pipeline 安裝步驟（`agent-dev-poller`，2026-09-06 新增）
+
+Jira 票或 GitHub issue 貼上 `ready-for-agent-dev` label 後，一個獨立部署的
+`agent-dev-poller`（K8s CronJob，不含 LLM，見
+`deployment-guides/k3s/agent-dev-poller/`）偵測到後，用既有的
+`jira-grill-trigger` bot @mention Genie，觸發 `auto-dev-pipeline` skill
+直接進全自動開發（跳過人類確認閘門）。跟 `jira-grill` 是完全獨立的兩條
+poller/label 機制，互不影響。
+
+**1. Skill 已經隨 `solo-bot-skills` plugin 一起裝好，只需要更新版本**
+（Genie 本來就裝了這個 plugin，這次是內容更新到 1.1.0，不用額外
+`plugin install`）：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
+```
+
+**2. 更新 Genie 的 CLAUDE.md**（本次在 `Genie-CLAUDE_v2.md` 新增了「4a.
+Auto Dev Pipeline」小節，指向這支新 skill）：先確認這個 branch 已經
+push，再跑既有的 `update-context.sh`（見 Part N；四隻 bot 都會重新
+`git pull` + 覆寫 `CLAUDE.md`/`AGENTS.md`，不是只有 Genie）：
+
+```bash
+bash /path/to/update-context.sh
+```
+
+跑完後記得到 Discord 對 Genie 開一條新 thread 才會重讀 CLAUDE.md（舊
+thread 不會重讀）。
+
+**3. 確認 Genie 的 Discord 設定已經涵蓋，不用改 Helm values**：`values-openab-claude.yaml`
+裡 Genie 的 `discord.trustedBotIds` 已含 `jira-grill-trigger`（`1541617131442147438`），
+`discord.allowedChannels` 已含 `cac-notify`（`1528965173761802420`）——這兩項
+`jira-grill-poller` 上線時就加過了，這次不用再 `helm upgrade`。
+
+**4. 申請兩把新的窄權限 fine-grained PAT**（GitHub → Settings →
+Developer settings → Fine-grained tokens → Generate new token）：
+
+| 帳號 | Resource owner | Repository access | Permissions |
+|---|---|---|---|
+| wm4n 個人 | `wm4n` | 只勾選 `GITHUB_AGENT_DEV_REPOS` 白名單裡 `wm4n/*` 的 repo | Issues: Read and write |
+| cac-william（公司） | `104corp` | 只勾選白名單裡 `104corp/*` 的 repo | Issues: Read and write |
+
+> 這兩把 token **只給 Issues 權限**，跟 Genie/Rick 開發用、可能含
+> code/PR 權限的 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC` 完全分開——就算這兩把
+> 外洩，攻擊者頂多亂改 issue label，動不了 code。
+
+**5. 建對應的 K8s Secret**（在 k3s 機器上執行）：
+
+```bash
+kubectl create secret generic github-agent-dev-poller-wm4n --from-literal=token=<步驟 4 申請的 wm4n PAT> -n cac
+kubectl create secret generic github-agent-dev-poller-cac  --from-literal=token=<步驟 4 申請的 cac-william PAT> -n cac
+```
+
+**6. 在白名單裡的每個 GitHub repo 先建好四個 label**（GitHub 的「加 label
+到 issue」API 不會自動建立不存在的 label，要先手動建，或用 `gh label
+create` 批次建）：
+
+```bash
+for REPO in 104corp/xxx 104corp/yyy; do
+  gh label create ready-for-agent-dev --repo "$REPO" --color BFD4F2 --description "已完整分析，交給 Genie 全自動開發" 2>/dev/null
+  gh label create agent-dev-active    --repo "$REPO" --color FBCA04 --description "Genie 正在處理中" 2>/dev/null
+  gh label create agent-dev-done      --repo "$REPO" --color 0E8A16 --description "Genie 已開 PR" 2>/dev/null
+  gh label create agent-dev-failed    --repo "$REPO" --color D93F0B --description "Genie 停手，需要人類介入" 2>/dev/null
+done
+```
+
+Jira 側不用預先定義 label，貼 `ready-for-agent-dev` 文字上去就算數。
+
+**7. 填好 `cronjob.yaml` 的白名單/ID 佔位值，再套用**：編輯
+`deployment-guides/k3s/agent-dev-poller/cronjob.yaml`，把三個
+`CHANGE_ME` 換成實際值：
+
+- `JIRA_AGENT_DEV_PROJECTS`：逗號分隔的 Jira project key 白名單。
+- `GITHUB_AGENT_DEV_REPOS`：逗號分隔的 `owner/repo` 白名單（要跟步驟 4/6
+  申請 PAT、建 label 的 repo 對齊）。
+- `GENIE_DISCORD_USER_ID`：Genie 這個 Discord Application 的 bot user
+  ID（跟 Part A4 取 channel/user ID 的方法一樣，去 Discord 開發者後台
+  或對 Genie 的 bot 帳號 `/whois` 查）。
+
+```bash
+kubectl apply -f deployment-guides/k3s/agent-dev-poller/cronjob.yaml
+```
+
+**8. 驗證**：手動觸發一次 Job 跑 poller（不用等 10 分鐘排程）：
+
+```bash
+kubectl create job --from=cronjob/agent-dev-poller agent-dev-poller-manual-test -n cac
+kubectl logs -n cac job/agent-dev-poller-manual-test -f
+```
+
+- 先在一個白名單 repo/project 裡對一張測試 issue/票貼 `ready-for-agent-dev`，
+  確認 log 印出「已觸發：...」、label 換成 `agent-dev-active`、Discord
+  `cac-notify` 頻道出現 @mention Genie 的觸發訊息。
+- 確認 Genie 收到後依 `auto-dev-pipeline` skill 開始動作（讀 issue/票 →
+  `openspec new` → …）。
+- 測試完 `kubectl delete job agent-dev-poller-manual-test -n cac` 清掉。
+
+**已知限制**（沿用設計討論的結論，未來要再解的話另外評估）：`agent-dev-active`
+沒有逾時自動復原，Genie pod 中途被殺需要人類手動把 label 改回
+`ready-for-agent-dev`。
+
 ### K3. Rick(Claude@OrbStack Mac mini) — openspec 開發
 
 **角色：** 收到 Morty 的 spec → openspec propose→apply→archive → 推 PR → @Morty + @Summer。

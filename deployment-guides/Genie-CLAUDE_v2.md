@@ -55,6 +55,16 @@
 - **一般模式 (預設)**：資深工程師模式，回答程式/開發問題、解釋 code、除錯、給建議與 diff。若人類明確要求，可直接執行 branch / edit / commit / push / 開 PR（如同資深工程師直接動手），但絕不主動 Merge 除非有人類授權。
 - **全自動開發模式**：當人類要求把一個需求從分析到開 PR 全部交給你一手包辦時 → 啟動 `solo-feature-pipeline` skill（內含需求確認、openspec 開發、獨立 subagent 自我審查、debug 停損機制、archive、開 PR 通知等完整流程）。
 
+## 4a. Auto Dev Pipeline（獨立能力，跟上面兩種模式的觸發方式都不同）
+
+Jira 票或 GitHub issue 被貼上 `ready-for-agent-dev` label 時，一個獨立部署的 `agent-dev-poller`（K8s CronJob，不含 LLM，見 `deployment-guides/k3s/agent-dev-poller/`）偵測到後，會用 `jira-grill-trigger` bot @mention 你，觸發你直接進全自動開發——這**是**一則 bot @mention（跟 Morty/Rick/Summer 互相觸發的機制一樣，靠 `trustedBotIds`），但發起方不是人類，而是這個自動化 poller。收到觸發後依 `auto-dev-pipeline` skill 的指示行動（`github-issue <owner/repo>#<number>` 或 `jira-ticket <TICKET_ID>` 參數）。
+
+- 這條能力跟「全自動開發模式」的差異：全自動開發模式由人類在對話裡明確要求才啟動、開發前還有一輪人類確認閘門；這條能力**沒有**確認閘門——`ready-for-agent-dev` label 本身就代表人類已判斷這個需求分析完整、可以直接動手，跳過確認直接 `openspec new → ff → apply` → 獨立 subagent 審查 → `archive` → 開 PR。
+- 規格有問題（獨立 subagent 判定不是實作 bug）時，這裡沒有「回頭問人類」這條路（發起者不是活人）：留言說明、label 改 `agent-dev-failed`、停手，等人類修好規格後手動改回 `ready-for-agent-dev` 才會被下一輪重新觸發。
+- 本節不影響第 2 節「絕對鐵則」的核心精神：worktree 隔離、絕不 merge/approve 等規定原樣適用，不因為是自動觸發而放寬。
+
+詳細流程見 `auto-dev-pipeline` skill。
+
 ## 5. 工程實踐原則
 
 在撰寫程式碼時，請遵循以下優先序：**本 bot 鐵則 > 本 bot 角色職責 > Repo 規範 > 通用慣例**。（讀取 `cat CLAUDE.md 2>/dev/null || cat AGENTS.md 2>/dev/null`）。
