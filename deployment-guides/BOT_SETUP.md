@@ -823,14 +823,23 @@ Rick persona 內指路的正式流程 skill：
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
 
 **jira-grill（獨立能力，2026-08-24 新增，2026-08-25 改用 deterministic
-poller 觸發）**：掛在 Rick 已裝的 `openab-bot-skills` plugin 裡（來源
-`wm4n/skill-registry` repo，`plugins/openab-bot-skills/skills/jira-grill/`），
-不需要額外 `plugin install`，`plugin marketplace update` +
-`plugin update openab-bot-skills@wm4n-skill-registry` 就會拉到。需要
-額外在 Rick 的 `values-openab-claude.yaml`（k3s，見 Part O）補
-`secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/`JIRA_EMAIL`，複用
-`morty-jira` Secret）與 `discord.trustedBotIds` 裡加入
-`jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
+poller 觸發，2026-09-08 改分階段提問）**：掛在 Rick 已裝的
+`openab-bot-skills` plugin 裡（來源 `wm4n/skill-registry` repo，
+`plugins/openab-bot-skills/skills/jira-grill/`），不需要額外
+`plugin install`，`plugin marketplace update` +
+`plugin update openab-bot-skills@wm4n-skill-registry` 就會拉到（版本
+1.7.0 起含分階段提問）。需要額外在 Rick 的 `values-openab-claude.yaml`
+（k3s，見 Part O）補 `secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/
+`JIRA_EMAIL`，複用 `morty-jira` Secret）與 `discord.trustedBotIds` 裡
+加入 `jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
+
+**2026-09-08 分階段提問（規格 → 工程）**：grilling 提問先只問規格類
+問題（由 PM 回答），規格全部釐清、達成共識後才貼一則階段轉換里程碑
+留言、開始問工程類問題（由工程師回答），避免同一輪同時驚動兩種角色。
+分類靠 LLM 語意判斷，階段狀態靠留言串裡的里程碑留言重新推導（無外部
+狀態），純內容/行為變更，不需要任何 K8s/Helm 設定變更，只需上面那兩條
+`plugin marketplace update`/`plugin update` 指令即可套用。細節見
+`jira-grill` SKILL.md 的「分階段提問：規格先、工程後」一節。
 
 觸發機制**不是**掛在 Rick 自己身上的 cron 輪詢，而是一個獨立部署的
 `jira-grill-poller`（K8s CronJob，見
