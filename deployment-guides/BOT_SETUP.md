@@ -727,13 +727,11 @@ done
 
 Jira 側不用預先定義 label，貼 `ready-for-agent-dev` 文字上去就算數。
 
-**7. 白名單已經定案並填進 `cronjob.yaml`**（`JIRA_AGENT_DEV_PROJECTS=CACJOB,CACVIP,CACATS`、
-`GITHUB_AGENT_DEV_REPOS=104corp/interview-ai-summary`），只剩一個佔位值
-`GENIE_DISCORD_USER_ID` 要填：Genie 這個 Discord Application 的 bot
-user ID（跟 Part A4 取 channel/user ID 的方法一樣，去 Discord 開發者
-後台或對 Genie 的 bot 帳號 `/whois` 查），編輯
-`deployment-guides/k3s/agent-dev-poller/cronjob.yaml` 把 `CHANGE_ME`
-換成實際值，再套用：
+**7. 白名單與 Genie 的 Discord user ID 已經填進 `cronjob.yaml`**
+（`JIRA_AGENT_DEV_PROJECTS=CACJOB,CACVIP,CACATS`、
+`GITHUB_AGENT_DEV_REPOS=104corp/interview-ai-summary`、
+`GENIE_DISCORD_USER_ID=1530106874613989406`），沒有 `CHANGE_ME` 佔位值
+了，直接套用：
 
 ```bash
 kubectl apply -f deployment-guides/k3s/agent-dev-poller/cronjob.yaml

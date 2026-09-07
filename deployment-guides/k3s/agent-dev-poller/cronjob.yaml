@@ -226,7 +226,7 @@ spec:
                 - name: AGENT_DEV_CHANNEL
                   value: "1528965173761802420" # cac-notify，跟 jira-grill-poller 共用同一個頻道
                 - name: GENIE_DISCORD_USER_ID
-                  value: "CHANGE_ME" # Genie 的 Discord bot user ID（跟 values-openab-claude.yaml 的 trustedBotIds 裡 Rick 那類數值同性質，需查 Genie 自己 Discord Application 的資料）
+                  value: "1530106874613989406" # cac-genie
               volumeMounts:
                 - name: script
                   mountPath: /scripts
