@@ -20,14 +20,16 @@ data:
     : "${JIRA_BASE_URL:?missing JIRA_BASE_URL}"
     : "${JIRA_AGENT_DEV_PROJECTS:?missing JIRA_AGENT_DEV_PROJECTS}"
     : "${GITHUB_AGENT_DEV_REPOS:?missing GITHUB_AGENT_DEV_REPOS}"
-    : "${GH_AGENT_DEV_TOKEN_WM4N:?missing GH_AGENT_DEV_TOKEN_WM4N}"
-    : "${GH_AGENT_DEV_TOKEN_CAC:?missing GH_AGENT_DEV_TOKEN_CAC}"
     : "${AGENT_DEV_CHANNEL:?missing AGENT_DEV_CHANNEL}"
     : "${JIRA_GRILL_TRIGGER_BOT_TOKEN:?missing JIRA_GRILL_TRIGGER_BOT_TOKEN}"
     : "${GENIE_DISCORD_USER_ID:?missing GENIE_DISCORD_USER_ID}"
 
     READY_LABEL="ready-for-agent-dev"
     ACTIVE_LABEL="agent-dev-active"
+
+    # GH_AGENT_DEV_TOKEN_WM4N/GH_AGENT_DEV_TOKEN_CAC 刻意不在這裡強制檢查：
+    # 白名單可能只涵蓋單一 owner，檢查移到下面依 repo owner 選 token 的地方，
+    # 缺哪把才報哪把，不逼白名單沒用到的 owner 也要生一把沒用的 token。
 
     # $1 = 要貼在觸發訊息裡的參數文字（例如 "github-issue 104corp/xxx#123"
     # 或 "jira-ticket CACJOB-123"）。
@@ -105,6 +107,10 @@ data:
         GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_WM4N"
       else
         GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_CAC"
+      fi
+      if [ -z "$GH_TOKEN_FOR_REPO" ]; then
+        echo "ERROR: ${REPO_FULL} 需要 owner=${OWNER} 對應的 GitHub token，但環境變數未設定，跳過"
+        continue
       fi
 
       RESPONSE=$(curl -s -w '\n%{http_code}' \
@@ -201,20 +207,22 @@ spec:
                     secretKeyRef:
                       name: jira-grill-trigger-discord
                       key: token
-                - name: GH_AGENT_DEV_TOKEN_WM4N
-                  valueFrom:
-                    secretKeyRef:
-                      name: github-agent-dev-poller-wm4n
-                      key: token
+                # 目前白名單（見下方 GITHUB_AGENT_DEV_REPOS）只有 104corp 的
+                # repo，GH_AGENT_DEV_TOKEN_CAC 就夠用。之後白名單若加入
+                # wm4n/* 的 repo，才需要另外 kubectl create secret
+                # github-agent-dev-poller-wm4n，並在這裡補一段對應的
+                # GH_AGENT_DEV_TOKEN_WM4N env（poller.sh 已經會自己依 repo
+                # owner 判斷要用哪把，缺了哪把只會跳過那個 owner 的 repo，
+                # 不會讓整個 CronJob 失敗）。
                 - name: GH_AGENT_DEV_TOKEN_CAC
                   valueFrom:
                     secretKeyRef:
                       name: github-agent-dev-poller-cac
                       key: token
                 - name: JIRA_AGENT_DEV_PROJECTS
-                  value: "CHANGE_ME" # 逗號分隔的 Jira project key 白名單，例如 "CACJOB,CACVIP"
+                  value: "CACJOB,CACVIP,CACATS"
                 - name: GITHUB_AGENT_DEV_REPOS
-                  value: "CHANGE_ME" # 逗號分隔的 owner/repo 白名單，例如 "104corp/xxx,104corp/yyy"
+                  value: "104corp/interview-ai-summary"
                 - name: AGENT_DEV_CHANNEL
                   value: "1528965173761802420" # cac-notify，跟 jira-grill-poller 共用同一個頻道
                 - name: GENIE_DISCORD_USER_ID

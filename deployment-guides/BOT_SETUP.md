@@ -684,31 +684,40 @@ thread 不會重讀）。
 `discord.allowedChannels` 已含 `cac-notify`（`1528965173761802420`）——這兩項
 `jira-grill-poller` 上線時就加過了，這次不用再 `helm upgrade`。
 
-**4. 申請兩把新的窄權限 fine-grained PAT**（GitHub → Settings →
-Developer settings → Fine-grained tokens → Generate new token）：
+**4. 申請 cac-william 這把 GitHub 憑證**——⚠️ **2026-09-07 更正**：
+`104corp` 這個 org 沒有開放 fine-grained PAT 存取 org repo（GitHub 要求
+org owner 先在 Organization Settings → Personal access tokens 明確
+開放，目前未開放，且不是我們能自己改的設定），改用**帳號角色限縮**取代
+「token 權限限縮」：
 
-| 帳號 | Resource owner | Repository access | Permissions |
-|---|---|---|---|
-| wm4n 個人 | `wm4n` | 只勾選 `GITHUB_AGENT_DEV_REPOS` 白名單裡 `wm4n/*` 的 repo | Issues: Read and write |
-| cac-william（公司） | `104corp` | 只勾選白名單裡 `104corp/*` 的 repo | Issues: Read and write |
+1. 請有 repo admin 權限的人，把 `cac-william` 加為
+   `104corp/interview-ai-summary` 的 collaborator，權限選
+   **Triage**（不是 Write/Admin）——Triage 能管理 issue/label（含新增、
+   移除），但沒有 code 的讀寫權限，就算 token 外洩也 push 不了 code、
+   merge 不了 PR。
+2. 用 `cac-william` 帳號申請一把 **classic token**（GitHub → Settings →
+   Developer settings → Personal access tokens → Tokens (classic) →
+   Generate new token (classic)），勾 `repo`（private repo 沒有更細的
+   scope，只能整個勾，防線在上一步的 Triage 角色，不是 token 本身）。
+3. 之後若白名單加入 `wm4n/*` 的 repo（目前沒有，見
+   `GITHUB_AGENT_DEV_REPOS` 白名單），`wm4n` 是個人帳號沒有 org 那條
+   限制，可以照原計畫申請 **fine-grained PAT**（Resource owner=`wm4n`，
+   只勾該 repo，Permissions → Issues: Read and write）。
 
-> 這兩把 token **只給 Issues 權限**，跟 Genie/Rick 開發用、可能含
-> code/PR 權限的 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC` 完全分開——就算這兩把
-> 外洩，攻擊者頂多亂改 issue label，動不了 code。
-
-**5. 建對應的 K8s Secret**（在 k3s 機器上執行）：
+**5. 建對應的 K8s Secret**（在 k3s 機器上執行；目前白名單只有 104corp 的
+repo，先只建 `-cac` 這把即可，`-wm4n` 等真的加入 wm4n repo 才需要，見
+`cronjob.yaml` 裡的註解）：
 
 ```bash
-kubectl create secret generic github-agent-dev-poller-wm4n --from-literal=token=<步驟 4 申請的 wm4n PAT> -n cac
-kubectl create secret generic github-agent-dev-poller-cac  --from-literal=token=<步驟 4 申請的 cac-william PAT> -n cac
+kubectl create secret generic github-agent-dev-poller-cac --from-literal=token=<步驟 4 申請的 cac-william classic token> -n cac
 ```
 
-**6. 在白名單裡的每個 GitHub repo 先建好四個 label**（GitHub 的「加 label
-到 issue」API 不會自動建立不存在的 label，要先手動建，或用 `gh label
+**6. 在白名單的 GitHub repo 先建好四個 label**（GitHub 的「加 label 到
+issue」API 不會自動建立不存在的 label，要先手動建，或用 `gh label
 create` 批次建）：
 
 ```bash
-for REPO in 104corp/xxx 104corp/yyy; do
+for REPO in 104corp/interview-ai-summary; do
   gh label create ready-for-agent-dev --repo "$REPO" --color BFD4F2 --description "已完整分析，交給 Genie 全自動開發" 2>/dev/null
   gh label create agent-dev-active    --repo "$REPO" --color FBCA04 --description "Genie 正在處理中" 2>/dev/null
   gh label create agent-dev-done      --repo "$REPO" --color 0E8A16 --description "Genie 已開 PR" 2>/dev/null
@@ -718,16 +727,13 @@ done
 
 Jira 側不用預先定義 label，貼 `ready-for-agent-dev` 文字上去就算數。
 
-**7. 填好 `cronjob.yaml` 的白名單/ID 佔位值，再套用**：編輯
-`deployment-guides/k3s/agent-dev-poller/cronjob.yaml`，把三個
-`CHANGE_ME` 換成實際值：
-
-- `JIRA_AGENT_DEV_PROJECTS`：逗號分隔的 Jira project key 白名單。
-- `GITHUB_AGENT_DEV_REPOS`：逗號分隔的 `owner/repo` 白名單（要跟步驟 4/6
-  申請 PAT、建 label 的 repo 對齊）。
-- `GENIE_DISCORD_USER_ID`：Genie 這個 Discord Application 的 bot user
-  ID（跟 Part A4 取 channel/user ID 的方法一樣，去 Discord 開發者後台
-  或對 Genie 的 bot 帳號 `/whois` 查）。
+**7. 白名單已經定案並填進 `cronjob.yaml`**（`JIRA_AGENT_DEV_PROJECTS=CACJOB,CACVIP,CACATS`、
+`GITHUB_AGENT_DEV_REPOS=104corp/interview-ai-summary`），只剩一個佔位值
+`GENIE_DISCORD_USER_ID` 要填：Genie 這個 Discord Application 的 bot
+user ID（跟 Part A4 取 channel/user ID 的方法一樣，去 Discord 開發者
+後台或對 Genie 的 bot 帳號 `/whois` 查），編輯
+`deployment-guides/k3s/agent-dev-poller/cronjob.yaml` 把 `CHANGE_ME`
+換成實際值，再套用：
 
 ```bash
 kubectl apply -f deployment-guides/k3s/agent-dev-poller/cronjob.yaml

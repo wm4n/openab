@@ -13,14 +13,16 @@
 : "${JIRA_BASE_URL:?missing JIRA_BASE_URL}"
 : "${JIRA_AGENT_DEV_PROJECTS:?missing JIRA_AGENT_DEV_PROJECTS}"
 : "${GITHUB_AGENT_DEV_REPOS:?missing GITHUB_AGENT_DEV_REPOS}"
-: "${GH_AGENT_DEV_TOKEN_WM4N:?missing GH_AGENT_DEV_TOKEN_WM4N}"
-: "${GH_AGENT_DEV_TOKEN_CAC:?missing GH_AGENT_DEV_TOKEN_CAC}"
 : "${AGENT_DEV_CHANNEL:?missing AGENT_DEV_CHANNEL}"
 : "${JIRA_GRILL_TRIGGER_BOT_TOKEN:?missing JIRA_GRILL_TRIGGER_BOT_TOKEN}"
 : "${GENIE_DISCORD_USER_ID:?missing GENIE_DISCORD_USER_ID}"
 
 READY_LABEL="ready-for-agent-dev"
 ACTIVE_LABEL="agent-dev-active"
+
+# GH_AGENT_DEV_TOKEN_WM4N/GH_AGENT_DEV_TOKEN_CAC 刻意不在這裡強制檢查：
+# 白名單可能只涵蓋單一 owner，檢查移到下面依 repo owner 選 token 的地方，
+# 缺哪把才報哪把，不逼白名單沒用到的 owner 也要生一把沒用的 token。
 
 # $1 = 要貼在觸發訊息裡的參數文字（例如 "github-issue 104corp/xxx#123"
 # 或 "jira-ticket CACJOB-123"）。
@@ -98,6 +100,10 @@ for REPO_FULL_RAW in "${REPO_LIST[@]}"; do
     GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_WM4N"
   else
     GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_CAC"
+  fi
+  if [ -z "$GH_TOKEN_FOR_REPO" ]; then
+    echo "ERROR: ${REPO_FULL} 需要 owner=${OWNER} 對應的 GitHub token，但環境變數未設定，跳過"
+    continue
   fi
 
   RESPONSE=$(curl -s -w '\n%{http_code}' \
