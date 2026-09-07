@@ -220,7 +220,7 @@ spec:
                       name: github-agent-dev-poller-cac
                       key: token
                 - name: JIRA_AGENT_DEV_PROJECTS
-                  value: "CACJOB,CACVIP,CACATS"
+                  value: "CACJOB,CACVIP,CACATS,ITGD"
                 - name: GITHUB_AGENT_DEV_REPOS
                   value: "104corp/interview-ai-summary"
                 - name: AGENT_DEV_CHANNEL

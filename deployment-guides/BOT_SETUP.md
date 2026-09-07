@@ -728,7 +728,7 @@ done
 Jira 側不用預先定義 label，貼 `ready-for-agent-dev` 文字上去就算數。
 
 **7. 白名單與 Genie 的 Discord user ID 已經填進 `cronjob.yaml`**
-（`JIRA_AGENT_DEV_PROJECTS=CACJOB,CACVIP,CACATS`、
+（`JIRA_AGENT_DEV_PROJECTS=CACJOB,CACVIP,CACATS,ITGD`、
 `GITHUB_AGENT_DEV_REPOS=104corp/interview-ai-summary`、
 `GENIE_DISCORD_USER_ID=1530106874613989406`），沒有 `CHANGE_ME` 佔位值
 了，直接套用：
