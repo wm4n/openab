@@ -24,6 +24,70 @@ ACTIVE_LABEL="agent-dev-active"
 # 白名單可能只涵蓋單一 owner，檢查移到下面依 repo owner 選 token 的地方，
 # 缺哪把才報哪把，不逼白名單沒用到的 owner 也要生一把沒用的 token。
 
+# $1 = TICKET_ID；印出 "blocked" 或 "clear"。查詢本身失敗時保守判定為
+# blocked（跳過、下一輪重試），不冒進觸發還沒解除依賴的票。
+check_jira_blocked() {
+  TICKET_ID="$1"
+  RESPONSE=$(curl -s -u "${JIRA_EMAIL}:${JIRA_TOKEN}" -w '\n%{http_code}' \
+    "${JIRA_BASE_URL}/rest/api/2/issue/${TICKET_ID}?fields=issuelinks")
+  printf '%s' "$RESPONSE" | node -e '
+    const raw = require("fs").readFileSync(0, "utf8");
+    const nl = raw.lastIndexOf("\n");
+    const status = raw.slice(nl + 1).trim();
+    const body = raw.slice(0, nl);
+    if (status !== "200") {
+      console.error("ERROR: 查 " + process.argv[1] + " 的 issuelinks 失敗（HTTP " + status + "），保守判定為 blocked");
+      console.log("blocked");
+      process.exit(0);
+    }
+    const links = ((JSON.parse(body).fields) || {}).issuelinks || [];
+    const openBlockers = links
+      .filter(l => l.inwardIssue) // inwardIssue = 對這張票而言是「is blocked by」方向
+      .filter(l => (((l.inwardIssue.fields || {}).status || {}).statusCategory || {}).key !== "done");
+    console.log(openBlockers.length > 0 ? "blocked" : "clear");
+  ' "$TICKET_ID"
+}
+
+# $1 = owner/repo，$2 = issue number，$3 = 該 repo 對應的 GitHub token；
+# 印出 "blocked" 或 "clear"。查詢本身失敗時保守判定為 blocked。
+check_github_blocked() {
+  REPO_FULL="$1"
+  ISSUE_NUMBER="$2"
+  TOKEN="$3"
+  OWNER="${REPO_FULL%%/*}"
+  NAME="${REPO_FULL#*/}"
+  QUERY=$(node -e '
+    const owner = process.argv[1], name = process.argv[2], number = Number(process.argv[3]);
+    const query = "query($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ issue(number:$number){ blockedBy(first:20){ nodes{ number state } } } } }";
+    process.stdout.write(JSON.stringify({ query, variables: { owner, name, number } }));
+  ' "$OWNER" "$NAME" "$ISSUE_NUMBER")
+  RESPONSE=$(curl -s -w '\n%{http_code}' \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "Content-Type: application/json" \
+    -X POST "https://api.github.com/graphql" \
+    -d "$QUERY")
+  printf '%s' "$RESPONSE" | node -e '
+    const raw = require("fs").readFileSync(0, "utf8");
+    const nl = raw.lastIndexOf("\n");
+    const status = raw.slice(nl + 1).trim();
+    const body = raw.slice(0, nl);
+    if (status !== "200") {
+      console.error("ERROR: 查 " + process.argv[1] + " 的 blockedBy 失敗（HTTP " + status + "），保守判定為 blocked");
+      console.log("blocked");
+      process.exit(0);
+    }
+    const parsed = JSON.parse(body);
+    if (parsed.errors || !parsed.data || !parsed.data.repository || !parsed.data.repository.issue) {
+      console.error("ERROR: " + process.argv[1] + " 的 blockedBy GraphQL 查詢錯誤，保守判定為 blocked：" + JSON.stringify(parsed.errors || parsed));
+      console.log("blocked");
+      process.exit(0);
+    }
+    const nodes = parsed.data.repository.issue.blockedBy.nodes || [];
+    const openBlockers = nodes.filter(n => n.state === "OPEN");
+    console.log(openBlockers.length > 0 ? "blocked" : "clear");
+  ' "${REPO_FULL}#${ISSUE_NUMBER}"
+}
+
 # $1 = 要貼在觸發訊息裡的參數文字（例如 "github-issue 104corp/xxx#123"
 # 或 "jira-ticket CACJOB-123"）。
 trigger_genie() {
@@ -76,6 +140,11 @@ TICKETS=$(printf '%s' "$RESPONSE" | node -e '
 if [ -n "$TICKETS" ]; then
   echo "$TICKETS" | while IFS= read -r TICKET_ID; do
     [ -z "$TICKET_ID" ] && continue
+    BLOCK_STATE=$(check_jira_blocked "$TICKET_ID")
+    if [ "$BLOCK_STATE" = "blocked" ]; then
+      echo "(${TICKET_ID} 仍被其他票 block 住，本輪跳過)"
+      continue
+    fi
     CLAIM_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -u "${JIRA_EMAIL}:${JIRA_TOKEN}" \
       -X PUT "${JIRA_BASE_URL}/rest/api/2/issue/${TICKET_ID}" \
       -H "Content-Type: application/json" \
@@ -132,6 +201,11 @@ for REPO_FULL_RAW in "${REPO_LIST[@]}"; do
   fi
   echo "$NUMBERS" | while IFS= read -r ISSUE_NUMBER; do
     [ -z "$ISSUE_NUMBER" ] && continue
+    BLOCK_STATE=$(check_github_blocked "$REPO_FULL" "$ISSUE_NUMBER" "$GH_TOKEN_FOR_REPO")
+    if [ "$BLOCK_STATE" = "blocked" ]; then
+      echo "(${REPO_FULL}#${ISSUE_NUMBER} 仍被其他 issue block 住，本輪跳過)"
+      continue
+    fi
     # 先加 agent-dev-active（idempotent，重試安全），成功後才移除
     # ready-for-agent-dev——順序反過來的話，萬一移除成功但新增失敗，這張
     # issue 會兩個 label 都沒有，下一輪永遠撿不回來。
