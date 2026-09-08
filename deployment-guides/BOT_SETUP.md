@@ -884,16 +884,22 @@ label（`ready-for-agent-dev` → 直接進 Auto Dev Pipeline；`grill-me`/
 讓 Rick 跟 genie 共用同一份內容。
 
 **1. Rick 跟 genie 都要重新拉一次 `solo-bot-skills` 最新內容**（帳號選擇
-改「persona 優先」、簽名改參數化，這兩處改動都在同一支 SKILL.md 裡，
-用既有指令重跑一次即可，不是新增指令）：
+改「persona 優先」、簽名改參數化，這兩處改動都在同一支 SKILL.md 裡）：
+⚠️ **Rick 若還沒裝過 `solo-bot-skills`（見上方「Rick 因此需要額外裝
+solo-bot-skills」段落，若那步一直沒實際執行過）要用 `install`，不是
+`update`**——`update` 只能更新「已安裝」的 plugin，對沒裝過的 plugin
+執行會直接報錯 `Plugin "solo-bot-skills" is not installed`：
 
 ```bash
 kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace update wm4n-skill-registry
-kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin install solo-bot-skills@wm4n-skill-registry
 
 kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace update wm4n-skill-registry
 kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
 ```
+
+（Genie 這邊維持 `update`，因為 genie 本來就已經裝過 `solo-bot-skills`
+——見 K2c。）
 
 **2. 保險步驟：確認 genie 有 `jira-fetch` 可用**（`jira-grill` 跟既有的
 `auto-dev-pipeline` 都靠它讀 Jira；不管 genie 現在有沒有裝過，這條指令
