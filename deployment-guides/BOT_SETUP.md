@@ -823,15 +823,48 @@ Rick persona 內指路的正式流程 skill：
 - 其餘（問問題、看 code、討論、隨手幫忙）維持資深工程師模式，不 @ 其他 bot、不開流程
 
 **jira-grill（獨立能力，2026-08-24 新增，2026-08-25 改用 deterministic
-poller 觸發，2026-09-08 改分階段提問）**：掛在 Rick 已裝的
-`openab-bot-skills` plugin 裡（來源 `wm4n/skill-registry` repo，
-`plugins/openab-bot-skills/skills/jira-grill/`），不需要額外
-`plugin install`，`plugin marketplace update` +
-`plugin update openab-bot-skills@wm4n-skill-registry` 就會拉到（版本
-1.7.0 起含分階段提問）。需要額外在 Rick 的 `values-openab-claude.yaml`
-（k3s，見 Part O）補 `secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/
-`JIRA_EMAIL`，複用 `morty-jira` Secret）與 `discord.trustedBotIds` 裡
-加入 `jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
+poller 觸發，2026-09-08 改分階段提問，2026-09-08 搬到
+`solo-bot-skills`）**：⚠️ **2026-09-08 更正**：這支 skill 原本掛在
+`openab-bot-skills` 裡，但那個 plugin 打包了 6 支只有接力型 bot 才用得到
+的 relay skill（`requirement-analysis`/`change-review`/
+`feature-development` 等）——genie 這種獨立型 bot 想裝 jira-grill 時，
+不該連帶裝進這些用不到的 skill，所以把 jira-grill 整個搬到
+`solo-bot-skills` plugin（來源 `wm4n/skill-registry` repo，
+`plugins/solo-bot-skills/skills/jira-grill/`）。**Rick 因此需要額外裝
+`solo-bot-skills`**（Rick 原本只裝了 `openab-bot-skills`，jira-grill 搬
+家後不再隨那包一起來）：
+
+```bash
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin install solo-bot-skills@wm4n-skill-registry
+```
+
+（`solo-bot-skills` 裡的 `solo-feature-pipeline`/`auto-dev-pipeline` 這兩支
+skill 只在被對應的觸發機制呼叫時才會用到——Rick 的 persona/CLAUDE.md 沒有
+任何路徑會叫到它們，多裝這兩支不影響 Rick 原本的行為，純粹是同一個
+plugin 裡搭售，見下方「已知限制」思路一致。）
+
+需要額外在 Rick 的 `values-openab-claude.yaml`（k3s，見 Part O）補
+`secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/`JIRA_EMAIL`，複用
+`morty-jira` Secret）與 `discord.trustedBotIds` 裡加入
+`jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
+
+**Genie 若也要裝 jira-grill**：Genie 本來就裝了 `solo-bot-skills`
+（見上方 K2c），搬家後只要跑既有的更新指令就會拉到，**不需要**
+`plugin install`：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
+```
+
+⚠️ **但這只是讓 skill「裝得上」，不代表會被自動觸發**：
+`jira-grill-poller`（見下方）目前寫死只 @mention Rick
+（`RICK_DISCORD_USER_ID`），genie 裝了這支 skill 之後只能被人類手動
+@mention 呼叫（如「Genie，執行 jira-grill skill，參數：ticket
+XXX-123」），不會被 poller 自動排進去。若要讓 genie 也能被 poller
+自動觸發（例如分不同 Jira project 分派給不同 bot），要另外擴充
+`jira-grill-poller` 的目標 bot 設定，目前尚未實作。
 
 **2026-09-08 分階段提問（規格 → 工程）**：grilling 提問先只問規格類
 問題（由 PM 回答），規格全部釐清、達成共識後才貼一則階段轉換里程碑
