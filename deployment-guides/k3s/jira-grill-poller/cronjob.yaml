@@ -10,7 +10,9 @@ data:
     # jira-grill-poller: deterministic 前置判斷，不經過 LLM。
     # 用兩條獨立 JQL 分別找「新票」（無時間窗口）跟「進行中的票有沒有新回覆」
     # （用 updated 時間窗口粗篩），只有真的需要處理才用 jira-grill-trigger
-    # bot 觸發 Rick。細節見 docs/superpowers/specs/2026-08-25-jira-grill-poller-design.md。
+    # bot 觸發目標 bot（GRILL_TARGET_BOT，預設 Rick）。細節見
+    # docs/superpowers/specs/2026-08-25-jira-grill-poller-design.md 與
+    # docs/superpowers/specs/2026-09-08-genie-jira-grill-routing-design.md。
 
     : "${JIRA_TOKEN:?missing JIRA_TOKEN}"
     : "${JIRA_EMAIL:?missing JIRA_EMAIL}"
@@ -18,7 +20,27 @@ data:
     : "${JIRA_GRILL_PROJECTS:?missing JIRA_GRILL_PROJECTS}"
     : "${JIRA_GRILL_CHANNEL:?missing JIRA_GRILL_CHANNEL}"
     : "${JIRA_GRILL_TRIGGER_BOT_TOKEN:?missing JIRA_GRILL_TRIGGER_BOT_TOKEN}"
-    : "${RICK_DISCORD_USER_ID:?missing RICK_DISCORD_USER_ID}"
+
+    # GRILL_TARGET_BOT：這一輪 grill-me 要 mention 哪個 bot，預設 rick（沿用
+    # 現行行為）。之後想切換給 genie 接手，只改這個環境變數，不用改這支
+    # script。見 docs/superpowers/specs/2026-09-08-genie-jira-grill-routing-design.md。
+    : "${GRILL_TARGET_BOT:=rick}"
+    case "$GRILL_TARGET_BOT" in
+      rick)
+        : "${RICK_DISCORD_USER_ID:?missing RICK_DISCORD_USER_ID}"
+        TARGET_BOT_ID="$RICK_DISCORD_USER_ID"
+        TARGET_BOT_NAME="Rick"
+        ;;
+      genie)
+        : "${GENIE_DISCORD_USER_ID:?missing GENIE_DISCORD_USER_ID}"
+        TARGET_BOT_ID="$GENIE_DISCORD_USER_ID"
+        TARGET_BOT_NAME="Genie"
+        ;;
+      *)
+        echo "ERROR: 不支援的 GRILL_TARGET_BOT=${GRILL_TARGET_BOT}（只支援 rick/genie）" >&2
+        exit 1
+        ;;
+    esac
 
     PROJECTS_CLAUSE=$(node -e '
     const keys = process.env.JIRA_GRILL_PROJECTS.split(",").map(s => s.trim()).filter(Boolean);
@@ -58,12 +80,12 @@ data:
     trigger_discord() {
       TICKET_ID="$1"
       BODY=$(node -e '
-        const rickId = process.env.RICK_DISCORD_USER_ID;
-        const ticket = process.argv[1];
+        const targetId = process.argv[1];
+        const ticket = process.argv[2];
         process.stdout.write(JSON.stringify({
-          content: "<@" + rickId + "> 執行 jira-grill skill，參數：ticket " + ticket
+          content: "<@" + targetId + "> 執行 jira-grill skill，參數：ticket " + ticket
         }));
-      ' "$TICKET_ID")
+      ' "$TARGET_BOT_ID" "$TICKET_ID")
       STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bot ${JIRA_GRILL_TRIGGER_BOT_TOKEN}" \
         -H "Content-Type: application/json" \
@@ -116,8 +138,9 @@ data:
           }
           const comments = (JSON.parse(body).comments) || [];
           if (comments.length === 0) { console.log("trigger"); process.exit(0); }
-          console.log(comments[0].body.includes("— By Rick (jira-grill)") ? "skip" : "trigger");
-        ' "$TICKET_ID")
+          const signature = "— By " + process.argv[2] + " (jira-grill)";
+          console.log(comments[0].body.includes(signature) ? "skip" : "trigger");
+        ' "$TICKET_ID" "$TARGET_BOT_NAME")
         if [ "$NEEDS_TRIGGER" = "trigger" ]; then
           trigger_discord "$TICKET_ID"
         fi
@@ -175,6 +198,10 @@ spec:
                   value: "1528965173761802420" # cac-notify
                 - name: RICK_DISCORD_USER_ID
                   value: "1519868630064562278" # Rick
+                - name: GENIE_DISCORD_USER_ID
+                  value: "1530106874613989406" # cac-genie
+                - name: GRILL_TARGET_BOT
+                  value: "rick" # 預設 rick，行為不變；改成 "genie" 才會切換自動觸發目標
               volumeMounts:
                 - name: script
                   mountPath: /scripts
