@@ -849,23 +849,6 @@ plugin 裡搭售，見下方「已知限制」思路一致。）
 `morty-jira` Secret）與 `discord.trustedBotIds` 裡加入
 `jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
 
-**Genie 若也要裝 jira-grill**：Genie 本來就裝了 `solo-bot-skills`
-（見上方 K2c），搬家後只要跑既有的更新指令就會拉到，**不需要**
-`plugin install`：
-
-```bash
-kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace update wm4n-skill-registry
-kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
-```
-
-⚠️ **但這只是讓 skill「裝得上」，不代表會被自動觸發**：
-`jira-grill-poller`（見下方）目前寫死只 @mention Rick
-（`RICK_DISCORD_USER_ID`），genie 裝了這支 skill 之後只能被人類手動
-@mention 呼叫（如「Genie，執行 jira-grill skill，參數：ticket
-XXX-123」），不會被 poller 自動排進去。若要讓 genie 也能被 poller
-自動觸發（例如分不同 Jira project 分派給不同 bot），要另外擴充
-`jira-grill-poller` 的目標 bot 設定，目前尚未實作。
-
 **2026-09-08 分階段提問（規格 → 工程）**：grilling 提問先只問規格類
 問題（由 PM 回答），規格全部釐清、達成共識後才貼一則階段轉換里程碑
 留言、開始問工程類問題（由工程師回答），避免同一輪同時驚動兩種角色。
@@ -879,7 +862,8 @@ XXX-123」），不會被 poller 自動排進去。若要讓 genie 也能被 pol
 `deployment-guides/k3s/jira-grill-poller/`，跟 openab 的 Helm release
 分開部署）：這個 poller 全程不經過 LLM，只有偵測到新的 `grill-me` 票
 或既有票的新回覆，才用一個新註冊的 `jira-grill-trigger` Discord bot
-@mention Rick 觸發，觸發後才會消耗一次 LLM turn。部署/更新 poller 見
+@mention 目標 bot（見下方「genie 也能執行 jira-grill」，預設仍是 Rick）
+觸發，觸發後才會消耗一次 LLM turn。部署/更新 poller 見
 `deployment-guides/k3s/jira-grill-poller/cronjob.yaml`。
 
 設計依據見
@@ -889,6 +873,53 @@ XXX-123」），不會被 poller 自動排進去。若要讓 genie 也能被 pol
 機制重寫）；實作計畫見
 `docs/superpowers/plans/2026-08-24-rick-jira-grill.md`與
 `docs/superpowers/plans/2026-08-25-jira-grill-poller.md`。
+
+#### genie 也能執行 jira-grill，依票 label 路由開發模式（2026-09-08 新增）
+
+見 `docs/superpowers/specs/2026-09-08-genie-jira-grill-routing-design.md`
+完整設計。Genie 現在被要求處理一張具體 Jira 票時，會先查這張票的
+label（`ready-for-agent-dev` → 直接進 Auto Dev Pipeline；`grill-me`/
+`grill-me-active` → 進 Jira Grill；其餘 → 依對話語氣判斷一般模式/全自動
+模式，行為不變）。`jira-grill` skill 本身也改成帳號選擇/簽名皆參數化，
+讓 Rick 跟 genie 共用同一份內容。
+
+**1. Rick 跟 genie 都要重新拉一次 `solo-bot-skills` 最新內容**（帳號選擇
+改「persona 優先」、簽名改參數化，這兩處改動都在同一支 SKILL.md 裡，
+用既有指令重跑一次即可，不是新增指令）：
+
+```bash
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
+
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update solo-bot-skills@wm4n-skill-registry
+```
+
+**2. 保險步驟：確認 genie 有 `jira-fetch` 可用**（`jira-grill` 跟既有的
+`auto-dev-pipeline` 都靠它讀 Jira；不管 genie 現在有沒有裝過，這條指令
+本身無害，已裝過就是 no-op）：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace add wm4n/skill-registry
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin install skill-registry@wm4n-skill-registry
+```
+
+**3. 更新 Genie 的 CLAUDE.md**（`Genie-CLAUDE_v2.md` 第 4 節新增 label
+路由規則、新增「4b. Jira Grill」小節）：跑既有的 `update-context.sh`
+（見 Part N），跑完後到 Discord 對 Genie 開一條新 thread 才會重讀。
+
+**4. 不需要 `helm upgrade`**：genie 的 `values-openab-claude.yaml` 已經在
+`agent-dev-poller` 上線時就設定好 `trustedBotIds`（含 `jira-grill-trigger`）
+與 `secretEnv`（`JIRA_TOKEN`/`JIRA_EMAIL`/`JIRA_BASE_URL`），這次不用動
+Helm。
+
+**5. `jira-grill-poller` 新增 `GRILL_TARGET_BOT` 設定**（見
+`deployment-guides/k3s/jira-grill-poller/cronjob.yaml`）：預設值
+`rick`，這次上線後行為不變。之後想讓 genie 接手自動觸發，只要把
+`cronjob.yaml` 裡的 `GRILL_TARGET_BOT` 改成 `genie`、`kubectl apply`
+即可，不需要再改 skill 或 persona 內容——**但目前先不切換**，genie 這條
+路目前只能靠人類手動 @mention 進入（見 `Genie-CLAUDE_v2.md` 的
+「4b. Jira Grill」小節）。
 
 **驗證寫入**：
 
