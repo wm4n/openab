@@ -63,6 +63,9 @@ agents:
           secretKey: JIRA_BASE_URL,
         }
       - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
+      # figma-fetch skill 用（2026-09-09 新增），供 jira-grill 讀 Jira 票裡
+      # 貼的 Figma 連結內容。
+      - { name: FIGMA_TOKEN, secretName: figma-token, secretKey: FIGMA_TOKEN }
     # usercron：cronjob.toml 熱重載排程（openab-schedule skill 用）；
     # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
     cron:
@@ -184,6 +187,9 @@ agents:
           secretKey: JIRA_BASE_URL,
         }
       - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
+      # figma-fetch skill 用（2026-09-09 新增），供 jira-grill 讀 Jira 票裡
+      # 貼的 Figma 連結內容。
+      - { name: FIGMA_TOKEN, secretName: figma-token, secretKey: FIGMA_TOKEN }
     cron:
       usercronEnabled: true
       usercronPath: "cronjob.toml"

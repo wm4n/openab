@@ -933,6 +933,78 @@ Helm。
 docker -c orbstack exec -u node openab-rick head -5 /home/node/CLAUDE.md
 ```
 
+#### figma-fetch：讓 jira-grill 能參考 Figma 設計稿內容（2026-09-09 新增）
+
+新增一支 `figma-fetch` skill（來源 `wm4n/skill-registry` repo 根目錄的
+`skills/figma-fetch/`，跟 `jira-fetch` 同一個 `skill-registry` plugin），
+唯讀呼叫 Figma 官方 REST API，提供 `nodes`（結構化文字）/`image`（下載
+PNG 供 `Read` 工具直接看畫面）/`comments`（列設計稿上的審閱留言）三個
+薄動作，讓 `jira-grill` 在 grill-me 提問時可以讀 Jira 票裡貼的 Figma
+連結，把畫面上的實際內容當事實輸入，減少問到「這裡長怎樣」這種設計稿
+已經畫出來的問題。**不接官方/第三方 MCP**——官方 Figma Remote MCP
+Server 只支援 OAuth（headless bot pod 沒有瀏覽器可以互動登入，且 access
+token 短效需要人工定期續期，不適合無人值守環境）；第三方包裝 PAT 的
+MCP server 技術上可行，但等於在 pod 裡多裝一個非官方維護、能拿到
+Figma token 的常駐 process，風險面比直接呼叫官方 REST API 大，故未採用。
+細節與已知限制見 `figma-fetch` SKILL.md。
+
+**不需要改 `jira-grill` skill 本身**：`figma-fetch` 的 description 已經
+寫成「Jira 票/GitHub issue/對話裡出現 Figma 連結且需要設計內容時使用」
+這種觸發條件式描述，Claude 會依現場情境自己判斷要不要呼叫，不用在
+`jira-grill` 裡額外寫一句「請呼叫 figma-fetch」。
+
+**1. 建立 `FIGMA_TOKEN` 的 K8s Secret**（用 104corp 團隊/服務帳號申請
+的 Figma Personal Access Token，跟 `JIRA_TOKEN` 同樣的單一服務帳號
+模式）：
+
+```bash
+kubectl create secret generic figma-token --from-literal=FIGMA_TOKEN=<Figma PAT> -n cac
+```
+
+**2. Rick 和 Genie 的 `values-openab-claude.yaml`（k3s，見 Part O）已經
+補上 `secretEnv`**（範圍只給這兩隻——目前只有 `jira-grill` 用得到
+`figma-fetch`，Morty/Summer 沒有對應情境，不需要加）：
+
+```yaml
+- { name: FIGMA_TOKEN, secretName: figma-token, secretKey: FIGMA_TOKEN }
+```
+
+`helm upgrade` 後才會生效——這次**需要** `helm upgrade`，跟前面幾次純
+skill 內容更新不同：
+
+```bash
+helm upgrade openab-claude ../../charts/openab -n cac -f values-openab-claude.yaml -f values-secret-claude.yaml
+```
+
+（同 K3S.md「`helm upgrade`（不是 install，加進既有 release）」一節的
+既有指令格式；Rick/Genie 各自的 pod 重啟互相獨立，這次改動不會連帶
+重啟 Morty/Summer。）
+
+**3. Genie 拉最新的 `skill-registry` 內容**（genie 已經在上一輪
+「保險步驟」裝過 `skill-registry@wm4n-skill-registry`，這次只是更新
+版本）：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update skill-registry@wm4n-skill-registry
+```
+
+**4. Rick 額外裝 `skill-registry` plugin**：⚠️ Rick 現在的 `jira-fetch`
+是走 Part K 原本的手動 clone + symlink 方式（不是 plugin CLI），這次
+**不去動那份既有 symlink**——直接另外裝 `skill-registry` plugin 只為了
+拿到 `figma-fetch`（`jira-fetch` 因此會同時存在两份，legacy symlink 版
+繼續運作、plugin 版是新增的，不衝突，比照 K2b 當時「重複 skill」的
+說法）：
+
+```bash
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace add wm4n/skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin install skill-registry@wm4n-skill-registry
+```
+
+（要不要順便把 Rick 的 `jira-fetch` 也從 legacy symlink 遷移到純
+plugin CLI、拿掉舊 symlink，是可以之後再做的獨立清理，這次先不動，
+降低風險範圍。）
+
 ### K4. Summer(Codex@OrbStack Mac mini) — Code Review
 
 **角色：** 收到 Rick 的 PR → 用 `wm4n.change-review-codex` skill 審查 → @Rick 回報結果。
