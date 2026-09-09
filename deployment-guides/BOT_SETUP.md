@@ -989,21 +989,22 @@ kubectl exec deployment/openab-claude-genie -n cac -- claude plugin marketplace 
 kubectl exec deployment/openab-claude-genie -n cac -- claude plugin update skill-registry@wm4n-skill-registry
 ```
 
-**4. Rick 額外裝 `skill-registry` plugin**：⚠️ Rick 現在的 `jira-fetch`
-是走 Part K 原本的手動 clone + symlink 方式（不是 plugin CLI），這次
-**不去動那份既有 symlink**——直接另外裝 `skill-registry` plugin 只為了
-拿到 `figma-fetch`（`jira-fetch` 因此會同時存在两份，legacy symlink 版
-繼續運作、plugin 版是新增的，不衝突，比照 K2b 當時「重複 skill」的
-說法）：
+**4. Rick 拉最新的 `skill-registry` 內容**：⚠️ **2026-09-09 更正**：上面
+原本寫「Rick 的 `jira-fetch` 還走 Part K 的手動 clone + symlink，需要
+額外 `plugin install`」——這個說法是錯的，實測 Rick 已經裝過
+`skill-registry@wm4n-skill-registry` plugin（`plugin install` 回報
+`already installed`），這份文件沒跟上實際狀態。跟 Genie 一樣，只需要
+`update`：
 
 ```bash
-kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace add wm4n/skill-registry
-kubectl exec deployment/openab-claude-rick -n cac -- claude plugin install skill-registry@wm4n-skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin marketplace update wm4n-skill-registry
+kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update skill-registry@wm4n-skill-registry
 ```
 
-（要不要順便把 Rick 的 `jira-fetch` 也從 legacy symlink 遷移到純
-plugin CLI、拿掉舊 symlink，是可以之後再做的獨立清理，這次先不動，
-降低風險範圍。）
+（是否還留有 Part K 那份手動 symlink 沒清掉、造成 `jira-fetch` 重複
+兩份，未實測確認——不影響這次 `figma-fetch` 能不能用，之後有空可以
+`kubectl exec ... -- ls -la /home/node/.claude/skills/` 查一下，重複
+的話比照 K2b 的「重複 skill 收尾」拿掉舊 symlink。）
 
 ### K4. Summer(Codex@OrbStack Mac mini) — Code Review
 
