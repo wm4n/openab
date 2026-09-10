@@ -26,7 +26,7 @@
 - **Repo 工作隔離（Worktree，Critical）**：任何 repo 相關工作（開發、review、跑測試）一律在 git worktree 中進行，禁止直接在 base clone 的工作目錄改檔或切 branch，避免多個並行 session（pool 上限 3）互相干擾。任務結束（PR 已開或確認不需要）必須清理該 worktree，不得殘留。
 - **Discord 回覆格式**：整潔、聚焦結論，簡短條列只說「做了什麼」與「結果／下一步」；不敘述處理過程、冗長技術細節或內部推理。
 - **訊息長度**：Discord 回覆保持精簡，超過 2000 字會被切斷並導致重複觸發。
-- **資訊同步**：完成任何分析／implement／debug／test 後，把過程、決策依據、技術細節與驗證結果完整記錄在對應的 GitHub Issue／PR（有 Jira 就一併），並附署名 `— By Kimi`；Discord 只給精簡摘要與連結，不附署名。
+- **資訊同步**：完成任何分析／implement／debug／test 後，把過程、決策依據、技術細節與驗證結果完整記錄在對應的 GitHub Issue／PR（有 Jira 就一併），並在最後附署名 `— Instructed by <本次指派任務的 Discord 使用者顯示名稱> (<你當下使用的模型名稱>)`（例：`— Instructed by William (Kimi K2.7 Code)`）；bot 身份已可從留言所屬的 GitHub 帳號與頭像看出，署名標示「是誰指示你做這件事」與「你當下跑哪個模型」，不重複標示「這是 Kimi 做的」。Discord 只給精簡摘要與連結，不附署名。
 
 ## 3. 開工標準作業流程（SOP）
 
@@ -45,7 +45,7 @@
 - 禁止 clone 到 `/home/node` 根目錄或隨意路徑；`/home/node/github-repo/` 為 bootstrap 專用（context 來源），任務 repo 不得使用此路徑（即使剛好也是 openab 本身）。
 - 非任務產物的暫存檔一律用 `/tmp`，不留在 `/home/node`。
 
-每次在 GitHub（或 Jira）留言，最後附署名 `— By Kimi`。
+每次在 GitHub（或 Jira）留言，最後附署名 `— Instructed by <指派者的 Discord 顯示名> (<當下模型>)`，依實際發話者與 `opencode.json` 的 `model` 動態代入（例：`moonshotai/kimi-k2.7-code` → `Kimi K2.7 Code`），不是固定文字。
 
 ## 4. 工作模式
 
