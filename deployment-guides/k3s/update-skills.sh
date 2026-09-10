@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# 更新各 bot 已安裝的 skill 內容到最新版本。
-#   - Rick/Morty/Genie（Claude）+ Summer（Codex）：走 claude/codex plugin marketplace。
-#   - Kimi（opencode，本檔最後一段）：opencode 沒有 plugin marketplace——superpowers 走
-#     opencode 原生 plugin 陣列，repo-identity/self-evolution 走 clone + symlink。機制完全不同。
+# 更新四隻 bot 已安裝的 plugin/skill 內容到最新版本（marketplace 快照刷新 + plugin 更新）。
 #
 # 用法：在 k3s 機器上直接執行 `bash update-skills.sh`。
 #
@@ -135,57 +132,5 @@ kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove te
 kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add team-bot@cac-plugins
 echo
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Kimi（openab-claude-kimi）——opencode 後端，機制跟上面四隻完全不同
-# ─────────────────────────────────────────────────────────────────────────────
-# opencode 沒有 claude/codex 那套 plugin marketplace。Kimi 是「純 coding 工具人」，
-# 只裝三樣：superpowers（全套）+ repo-identity + self-evolution。兩條安裝路：
-#   1. superpowers 有原生 opencode plugin → 寫進「全域」opencode.jsonc 的 `plugin` 陣列
-#      （spec: superpowers@git+https://github.com/obra/superpowers.git，不釘版＝跟其他
-#      四隻 `plugin update` 一樣取 latest）。plugin 會自己用 hook 注入 bootstrap
-#      context + 註冊 skills 目錄，不用 symlink。
-#   2. repo-identity / self-evolution 是純 SKILL.md（來源 wm4n/skill-registry，PUBLIC）
-#      → clone 後 symlink 進 ~/.config/opencode/skills/（opencode 的 personal skills 目錄）。
-# ⚠️ 不裝 pipeline / jira / 104 系列 skill——那些跟 Kimi 定位衝突（見 Kimi-AGENTS_v2.md）。
-# ⚠️ opencode plugin 陣列改動要重啟 pod 才生效（開新 thread 不夠），故這段結尾直接 rollout restart。
-# ⚠️ opencode/Bun 可能把 git-backed plugin pin 在 lockfile/cache，restart 後沒更新到最新
-#    superpowers 時，進 pod 清 opencode 的 package cache 再重裝。
-echo "=== Kimi (openab-claude-kimi) — opencode，非 plugin marketplace ==="
-KIMI=openab-claude-kimi
-
-# 1) superpowers → 全域 opencode.jsonc 的 plugin 陣列（node 冪等合併，保留既有 model 等鍵）
-kubectl exec -i "deployment/$KIMI" -n "$NS" -- sh -lc '
-  set -e
-  F=/home/node/.config/opencode/opencode.jsonc
-  mkdir -p "$(dirname "$F")"; [ -f "$F" ] || echo "{}" > "$F"
-  node -e "
-    const fs=require(\"fs\"), p=\"$F\";
-    const j=JSON.parse(fs.readFileSync(p,\"utf8\"));           // 前提：此檔為純 JSON、無註解
-    const sp=\"superpowers@git+https://github.com/obra/superpowers.git\";
-    j.plugin=Array.from(new Set([...(j.plugin||[]), sp]));
-    j.permission=j.permission||{}; j.permission.skill=j.permission.skill||{\"*\":\"allow\"};
-    fs.writeFileSync(p, JSON.stringify(j,null,2)+\"\n\");
-  "
-  echo "--- opencode.jsonc ---"; cat "$F"
-'
-
-# 2) repo-identity + self-evolution → clone/pull 來源，symlink 進 personal skills 目錄
-kubectl exec -i "deployment/$KIMI" -n "$NS" -- sh -lc '
-  set -e
-  D=/home/node/github-repo/skill-registry
-  [ -d "$D/.git" ] && (cd "$D" && git pull -q) || git clone -q https://github.com/wm4n/skill-registry.git "$D"
-  mkdir -p /home/node/.config/opencode/skills
-  ln -sfn "$D/plugins/openab-bot-skills/skills/repo-identity" /home/node/.config/opencode/skills/repo-identity
-  ln -sfn "$D/skills/self-evolution"                          /home/node/.config/opencode/skills/self-evolution
-  echo "--- ~/.config/opencode/skills ---"; ls -l /home/node/.config/opencode/skills
-'
-
-# 3) 重啟載入 plugin + skill
-kubectl rollout restart "deployment/$KIMI" -n "$NS"
-kubectl rollout status  "deployment/$KIMI" -n "$NS"
-echo
-
 echo "全部更新完成。到 Discord 對 Rick / Morty / Summer / Genie 各開一條新 thread 再驗證；"
-echo "Kimi 這段已直接 rollout restart，起來後 @它「用 skill 工具列出 skill」確認 superpowers /"
-echo "repo-identity / self-evolution 都在。"
-echo "若 Claude 三隻新 thread 驗證後發現還是舊版，才需要 kubectl rollout restart deployment/<name> -n cac。"
+echo "若新 thread 驗證後發現還是舊版，才需要 kubectl rollout restart deployment/<name> -n cac。"
