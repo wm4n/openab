@@ -356,7 +356,7 @@ by 誰是精確值，token by 誰是估計值**，報表不可讓兩者看起來
 | 訊號 | 算法 | 可信度 |
 | --- | --- | --- |
 | 追問密度 | 同 session 同 sender 相鄰兩筆 `human` task 的時間差中位數，以及每 session 的 `human` task 數 | 中 |
-| 否定詞命中 | 後續 `human` task 的訊息含「不對／不是／重做／再試／錯了」等 | **低**（「這段程式碼不對」是在講 code，誤判率高） |
+| ~~否定詞命中~~ | ~~後續 `human` task 的訊息含「不對／重做」等~~ | **實作計畫已排除**：需要把使用者訊息內容擷取進事件檔（隱私成本），而它是三個訊號裡最弱的（「這段程式碼不對」是在講 code）。留下的兩個訊號只用時間戳與 session ID，事件檔完全不含對話內容。 |
 | session 放棄 | session 有活動但無後續、且同 thread 短時間內另開新 session | 低 |
 
 報表必須明寫「這不是滿意度量測」。要取得真正的滿意度需要明確評分機制（reaction 或
@@ -476,7 +476,7 @@ agent 的 HOME，也避免統計程式持有 agent 家目錄的寫入權限。
 | `deployment-guides/k3s/usage-stats/aggregate.py` | 新增：指標計算（純函數） |
 | `deployment-guides/k3s/usage-stats/report.py` | 新增：**使用者手動跑的 CLI**。`--since`／`--until`／`--bots`／`--format {text,md,html}`／`-o` |
 | `deployment-guides/k3s/usage-stats/render_html.py` | 新增：自帶資源的單一 HTML（inline CSS + 程式產生的 inline SVG，零外部請求） |
-| `deployment-guides/k3s/usage-stats/config.example.toml` | 新增：價目表、頻道名對照、否定詞清單、allowlist 人數上界 |
+| `deployment-guides/k3s/usage-stats/config.example.json` | 新增：價目表、頻道名對照、allowlist 人數上界。**JSON 不是 TOML** —— `tomllib` 要 Python 3.11+，而節點與容器版本未知 |
 | `deployment-guides/k3s/usage-stats/cronjob.yaml` | 新增：CronJob + hostPath 唯讀掛 `/data/william/openab` + 獨立 PVC（沿用 `jira-grill-poller` 形式） |
 | `deployment-guides/k3s/usage-stats/tests/` | 新增：三份去識別化樣本 fixture + 邊界案例 + SVG 座標斷言 |
 | `deployment-guides/k3s/README.md` | 更新：檔案表與安裝節錄 |
