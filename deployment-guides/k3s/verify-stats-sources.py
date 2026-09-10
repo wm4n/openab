@@ -215,9 +215,21 @@ def report_agent(name, cli, f, files):
 
     print("      [2] token 欄位")
     if f.token_sums:
-        for p, keys in sorted(f.token_fields.items(), key=lambda kv: -sum(kv[1].values()))[:4]:
-            print(f"          路徑 {p} → {', '.join(sorted(keys))}")
-        print("          加總 : " + ", ".join(f"{k.rsplit('.', 2)[-1]}={v}" for k, v in sorted(f.token_sums.items())))
+        # 按父路徑分組列出。**不要**只印路徑最後一段：Claude Code 的
+        # message.usage 底下同時有 iterations[] 與 cache_creation 兩層明細，
+        # 欄位名跟外層一模一樣，只印末段會折疊成同名、看起來像重複計數，
+        # 而且會讓人看不出「哪個是權威值、哪個是明細」——那正是 parser
+        # 最容易 double count 的地方。
+        # （原本這裡另外列了一份 token_fields 的路徑清單，跟下面的分組
+        #   輸出重複且只顯示前 4 條，已移除。）
+        groups = collections.defaultdict(list)
+        for k, v in f.token_sums.items():
+            parent, _, leaf = k.rpartition(".")
+            groups[parent or "(root)"].append((leaf, v))
+        print("          加總（按路徑分組，同名不同路徑是不同東西）:")
+        for parent in sorted(groups, key=lambda p: (p.count("."), p)):
+            items = ", ".join(f"{leaf}={v}" for leaf, v in sorted(groups[parent]))
+            print(f"            {parent}: {items}")
         cache = [k for k in f.token_sums if re.search(r"cache|cached", k, re.I)]
         print(f"          有區分 cache 嗎 : {'有' if cache else '沒有 —— 無法精算成本，只能算用量'}")
         agg = [k for k in f.token_sums if re.search(r"total", k.rsplit(".", 1)[-1], re.I)]

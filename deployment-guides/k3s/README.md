@@ -18,6 +18,7 @@
 | `values-secret-eve.example.yaml` | 複製成 `values-secret-eve.yaml`（gitignored）填 Eve 的 Discord token |
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
 | `verify-stats-sources.py` | 唯讀診斷：掃各 agent PVC 上的 transcript，確認統計要用的欄位在不在（見下方「統計資料源診斷」） |
+| `probe-opencode-db.py` | 唯讀診斷（**臨時**）：探查 opencode 的 SQLite schema。opencode 不存 JSON 檔而是 `opencode.db`，schema 摸清後這支會併進 `verify-stats-sources.py` 並刪除 |
 
 ## 快速驗證（在有 helm 的機器）
 
@@ -135,3 +136,46 @@ OPENAB_DATA_ROOT=/your/path python3 verify-stats-sources.py
 在哪、token 數字在哪個路徑、model 欄位叫什麼。所以三家 CLI 共用一支，CLI 升版改
 格式之後也還能用——可以拿來當偵測格式漂移的常備工具（`sender_context` 從「有」變
 「無」就是上游改了注入方式或 CLI 改了存法）。
+
+### 2026-09-10 首次實跑結果
+
+| bot | CLI | sender_context | token | 可回溯起日 |
+| --- | --- | --- | --- | --- |
+| rick / morty | claude-code | 有（欄位全齊，含 `thread_id`） | 有，區分 cache | 2026-08-18 |
+| genie | claude-code | 有 | 有，區分 cache | 2026-08-11 |
+| summer | codex | 有 | 有，區分 cache | 2026-07-21 |
+| kimi / walle / eve | opencode | 待查 | 待查 | — |
+
+三個要寫進 parser 的重點：
+
+1. **`message.usage` 底下的嵌套是明細，不是額外用量。** `cache_creation`
+   （ephemeral 1h/5m 的 TTL 拆解）與 `iterations[]`（每次 iteration）的欄位名跟外層
+   一模一樣，天真加總會虛報數倍。`server_tool_use` 是請求次數不是 token。另有
+   `toolUseResult.totalTokens` 與 compaction 的 `preTokens`/`postTokens`/
+   `cumulativeDroppedTokens` 完全不是 API 計費項目。
+2. **任務數要數 distinct `message_id`，不是數 `sender_context` 出現次數。** 同一次
+   任務會同時出現在 `message.content[].text` 與 `attachment.prompt[].text`
+   （codex 是 `payload.content[].text` 與 `payload.message`）。`sender_context` 裡的
+   `message_id` 是平台訊息 ID，天然去重鍵。
+3. **model 要走路徑白名單。** `message.content[].input.model` 是 Task tool 呼叫
+   subagent 時傳的參數（值會是 `opus` 這種簡寫），`<synthetic>` 是 CLI 內部合成訊息
+   沒有實際 API 呼叫；codex 的 `payload.collaboration_mode.settings.model` 是設定值。
+   只有 `message.model`（codex 為 `payload.model`）是實際計費的 model。
+
+另一個實測數字：`is_bot` 分佈 Rick 真人 17／bot 141（**89% 是 bot 互呼**）、Summer
+30／44、Genie 357／22。bot 互呼不分開算的話，Rick 的任務數會虛報近 9 倍。
+
+## opencode 的 SQLite（`probe-opencode-db.py`）
+
+opencode 不像 Claude Code / codex 寫 JSONL，它把 session 存在
+`~/.local/share/opencode/opencode.db`（SQLite，WAL 模式），所以
+`verify-stats-sources.py` 掃不到（只會掃到 `.config/opencode` 裡幾百 bytes 的設定檔）。
+
+```bash
+sudo python3 probe-opencode-db.py /data/william/openab/agent-kimi
+```
+
+DB 正在被跑著的 pod 寫入，所以這支會**先把 `db`/`-wal`/`-shm` 複製到暫存目錄再讀
+複本**，完全不碰原檔（連唯讀開啟都不做——WAL 模式下唯讀開啟可能需要建 `-shm`）。
+輸出含全部表的 schema、每張表的列數、`sender_context` 命中在哪張表哪個欄位，以及
+全 DB 掃出來的 token／cost／model 候選路徑。
