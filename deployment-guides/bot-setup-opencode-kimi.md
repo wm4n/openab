@@ -158,32 +158,21 @@ docker -c orbstack exec -u node openab-kimi opencode models | grep -i kimi
 
 ## 步驟 8 —(選)工作脈絡檔:opencode 用 `AGENTS.md`
 
+context 檔的正式來源是 repo 裡的 [`Kimi-AGENTS_v2.md`](./Kimi-AGENTS_v2.md)(與 k3s 版共用同一份)。
+Docker 版沒有 ConfigMap,直接 clone repo 後 `cat` 進容器:
+
 ```bash
-docker -c orbstack exec -i -u node openab-kimi sh -c 'cat > /home/node/AGENTS.md' <<'EOF'
-# AGENTS.md — openab Kimi @ Mac mini
-
-## 你是誰 / 在哪
-- 你是透過 openab 橋接到 Discord 的 agent,後端 opencode,模型 Kimi(OpenRouter)。
-- 跑在 Mac mini 的 Docker 容器(OrbStack)。使用者在 Discord @你 派工;每個 thread 一個 session。
-
-## 溝通語言
-- 一律使用繁體中文(台灣正體)回覆。
-
-## 工作目錄與持久化
-- 工作目錄(= $HOME):/home/node,掛在 docker volume,容器重啟不會掉。
-- opencode 憑證:/home/node/.local/share/opencode/auth.json
-- 模型設定:/home/node/opencode.json
-- GitHub 憑證:/home/node/.config/gh
-
-## 可用工具
-- git、gh、node 22、npm、rg(ripgrep)。
-
-## 目前狀態
-- 要開始工作時,把目標 repo git clone 到 /home/node/<repo> 底下再進行。
-EOF
+docker -c orbstack exec -i -u node openab-kimi sh -c '
+  set -e
+  D=/home/node/github-repo/openab
+  git clone https://github.com/wm4n/openab.git "$D" 2>/dev/null || (cd "$D" && git pull)
+  cat "$D/deployment-guides/Kimi-AGENTS_v2.md" > /home/node/AGENTS.md
+  head -3 /home/node/AGENTS.md
+'
 ```
 
 > opencode 在 session 開始時讀 working_dir 的 `AGENTS.md`;改完在 Discord **開新 thread** 才會重讀。
+> 要改內容改 `Kimi-AGENTS_v2.md`、push,再重跑上面這段(k3s 版則跑 `update-context.sh`)。
 
 ## 步驟 9 — 端對端驗證
 
@@ -303,13 +292,20 @@ EOF
 kubectl -n cac exec -it "$POD" -- gh auth login --hostname github.com
 kubectl -n cac exec "$POD" -- gh auth setup-git
 
-# 5) 重啟讓 opencode 重讀設定
+# 5) context 檔:跟 Rick/Morty/Summer/Genie 同一套 —— 跑 update-context.sh
+#    （會 clone/pull openab repo 進 pod,cat deployment-guides/Kimi-AGENTS_v2.md
+#    > /home/node/AGENTS.md）。前提:values-openab-kimi.yaml 沒設 agentsMd。
+bash update-context.sh        # 或只跑 Kimi 那隻:見腳本 BOTS 陣列
+
+# 6) 重啟讓 opencode 重讀設定
 kubectl -n cac rollout restart deploy/openab-claude-kimi -n cac
 ```
 
-> `AGENTS.md` 已由 `values-openab-kimi.yaml` 的 `agentsMd` 帶進來(chart 會同時掛成
-> `AGENTS.md` / `CLAUDE.md` / `GEMINI.md`),不用再 `kubectl cp`。要改內容改 values 再 `helm upgrade`。
-> **注意**:設了 `agentsMd` 後,PVC 上同路徑的檔案會被 ConfigMap mount 遮蔽(唯讀)。
+> **context 檔不走 `agentsMd`**:`values-openab-kimi.yaml` 刻意不設 `agentsMd`,`/home/node/AGENTS.md`
+> 由 `update-context.sh`（來源 `deployment-guides/Kimi-AGENTS_v2.md`）寫進 PVC,跟其他四隻一致、可被
+> `update-context.sh` 一次更新。設了 `agentsMd` 會掛成唯讀 ConfigMap,`update-context.sh` 的
+> `cat > AGENTS.md` 會 `Read-only file system` 而 `set -e` 中止。
+> **skill 暫不接**(opencode 用 `~/.claude/skills/` 目錄,非 `claude plugin`;之後再處理,見正文「opencode 的 skill」段)。
 
 ### A6. 驗證
 
@@ -331,4 +327,5 @@ kubectl -n cac exec deploy/openab-claude-kimi -- opencode models | grep -i kimi
 | config.toml | `~/oab-kimi/config.toml` 手寫 | chart 由 `values-openab-kimi.yaml` 生成 |
 | OpenRouter key | `opencode auth login`(volume) | 同左(PVC);或 `secretEnv` 注入 `OPENROUTER_API_KEY`(宣告式,但 key 進 agent env) |
 | `opencode.json` | `docker exec` 寫檔 | `kubectl exec` 寫進 PVC |
-| `AGENTS.md` | `docker exec` 寫檔 | `values` 的 `agentsMd`(ConfigMap 掛載) |
+| `AGENTS.md` | `docker exec` 寫檔(正文步驟 8) | `update-context.sh`(來源 `Kimi-AGENTS_v2.md`,寫進 PVC);**不設 `agentsMd`** |
+| skill | 暫不接 | 暫不接(opencode 走 `~/.claude/skills/` 目錄,非 `claude plugin`) |

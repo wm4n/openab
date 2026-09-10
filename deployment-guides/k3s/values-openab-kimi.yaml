@@ -61,30 +61,10 @@ agents:
 
     inheritEnv: ["GH_TOKEN"]          # GitHub 用；OpenRouter key 不放這
 
-    # 預設模型設定檔 opencode.json 由 agentsMd 帶進來（chart 會把這段同時掛成
-    # AGENTS.md / CLAUDE.md / GEMINI.md，opencode 讀 AGENTS.md）。
-    # ⚠️ opencode.json 本身沒有對應 chart 欄位 —— 由 bootstrap 寫進 PVC，見附錄 A。
-    agentsMd: |
-      # AGENTS.md — openab Kimi @ k3s
-
-      ## 你是誰 / 在哪
-      - 你是透過 openab 橋接到 Discord 的 agent，後端 opencode，模型 Kimi（OpenRouter）。
-      - 跑在單節點 k3s 的 pod。使用者在 Discord @你 派工；每個 thread 一個 session。
-
-      ## 溝通語言
-      - 一律使用繁體中文（台灣正體）回覆。
-
-      ## 工作目錄與持久化
-      - 工作目錄（= $HOME）：/home/node，掛在 PVC，pod 重啟不會掉。
-      - opencode 憑證：/home/node/.local/share/opencode/auth.json
-      - 模型設定：/home/node/opencode.json
-      - GitHub 憑證：/home/node/.config/gh
-
-      ## 可用工具
-      - git、gh、node 22、npm、rg（ripgrep）。
-
-      ## 目前狀態
-      - 要開始工作時，把目標 repo git clone 到 /home/node/<repo> 底下再進行。
+    # ⚠️ 不設 agentsMd —— context 檔（/home/node/AGENTS.md）跟 Rick/Morty/Summer/Genie
+    #    一樣由 update-context.sh 寫進 PVC（來源 deployment-guides/Kimi-AGENTS_v2.md）。
+    #    設了 agentsMd 會掛成唯讀 ConfigMap，update-context.sh 的 `cat > AGENTS.md`
+    #    會 Read-only file system 而 set -e 中止。opencode.json 同理由 bootstrap 寫 PVC。
 
     cron:
       usercronEnabled: true
