@@ -72,6 +72,14 @@ helm upgrade openab-claude ../../charts/openab -n cac \
 
 一樣 opencode + OpenRouter，只差 agent key、persona 檔、與全域 `opencode.jsonc` 的 model 字串（Wall-E＝`openrouter/deepseek/deepseek-v4-pro-0813`、Eve＝`openrouter/z-ai/glm-5.2`）。OpenRouter key 與 Kimi **共用同一把**。
 
+**推薦：跑互動 wizard `deploy-walle-eve.sh`**（10 stage，自動步驟自己跑，Discord 開 App / `opencode auth login` / 貼 PAT 這些人做的事會停下來提示）：
+
+```bash
+bash deploy-walle-eve.sh
+```
+
+手動流程（wizard 背後做的事）：
+
 ```bash
 cp values-secret-walle.example.yaml values-secret-walle.yaml   # 填 Discord token
 cp values-secret-eve.example.yaml   values-secret-eve.yaml

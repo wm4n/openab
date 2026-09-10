@@ -357,6 +357,13 @@ kubectl -n cac exec deploy/openab-claude-kimi -- opencode models | grep -i kimi
 跟 Kimi **完全同一套**(opencode + OpenRouter,併進 `openab-claude` release)。差別只有下表這幾格,
 其餘照附錄 A 逐步做即可。
 
+> **懶人包**:在 k3s 主機直接跑 [`k3s/deploy-walle-eve.sh`](./k3s/deploy-walle-eve.sh) —— 一支
+> 10 stage 的互動 wizard,把下面「一次上兩隻」+「bootstrap」+「驗證」全包了:自動的步驟
+> (建 PV / `helm upgrade` / 寫 `opencode.jsonc` / `update-context.sh` / restart / 驗證)它自己跑,
+> 只有人做得到的步驟(Discord 開 App 拿 token、`opencode auth login` 選 OpenRouter 貼 key、
+> 貼 104cac PAT)會停下來給你操作。可 Ctrl-C 隨時中斷重跑(動作皆冪等)。下面幾節是它背後
+> 做的事,供對照 / 手動執行。
+
 | 項目 | Kimi | **Wall-E** | **Eve** |
 |---|---|---|---|
 | agent key | `kimi` | `walle` | `eve` |
