@@ -135,7 +135,9 @@ docker -c orbstack exec -u node openab-kimi cat /home/node/.local/share/opencode
 docker -c orbstack exec -i -u node openab-kimi sh -c 'mkdir -p /home/node/.config/opencode && cat > /home/node/.config/opencode/opencode.jsonc' <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "openrouter/moonshotai/kimi-k3"
+  "model": "openrouter/moonshotai/kimi-k3",
+  "plugin": ["superpowers@git+https://github.com/obra/superpowers.git"],
+  "permission": { "skill": { "*": "allow" } }
 }
 EOF
 
@@ -144,6 +146,8 @@ docker -c orbstack exec -u node openab-kimi rm -f /home/node/opencode.json
 
 docker -c orbstack restart openab-kimi
 ```
+
+> `plugin` / `permission` 是給 skill 用的(見附錄 B)。純要跑模型可以先不放,但之後裝 skill 還是要補。
 
 驗證模型抓得到:
 
@@ -292,14 +296,16 @@ kubectl -n cac exec -it "$POD" -- mkdir -p /home/node/.local/share/opencode
 kubectl -n cac exec -it "$POD" -- opencode auth login
 kubectl -n cac exec "$POD" -- opencode auth list
 
-# 3) 預設模型寫進「全域」config —— opencode 的 ACP server 只讀這份，
-#    不讀 /home/node/opencode.json（project config）。寫錯地方 bot 會落回
-#    內建 fallback（實測變成 google/gemini-3-pro-image-preview，不回話）。
+# 3) 全域 config —— opencode 的 ACP server 只讀這份，不讀 /home/node/opencode.json
+#    （project config）。寫錯地方 bot 會落回內建 fallback（實測變成
+#    google/gemini-3-pro-image-preview，不回話）。plugin/permission 給 skill 用（附錄 B）。
 kubectl -n cac exec "$POD" -- mkdir -p /home/node/.config/opencode
 kubectl -n cac exec -i "$POD" -- sh -c 'cat > /home/node/.config/opencode/opencode.jsonc' <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "openrouter/moonshotai/kimi-k3"
+  "model": "openrouter/moonshotai/kimi-k3",
+  "plugin": ["superpowers@git+https://github.com/obra/superpowers.git"],
+  "permission": { "skill": { "*": "allow" } }
 }
 EOF
 
@@ -325,7 +331,8 @@ kubectl -n cac rollout restart deploy/openab-claude-kimi -n cac
 > 由 `update-context.sh`（來源 `deployment-guides/Kimi-AGENTS_v2.md`）寫進 PVC,跟其他四隻一致、可被
 > `update-context.sh` 一次更新。設了 `agentsMd` 會掛成唯讀 ConfigMap,`update-context.sh` 的
 > `cat > AGENTS.md` 會 `Read-only file system` 而 `set -e` 中止。
-> **skill 暫不接**(opencode 用 `~/.claude/skills/` 目錄,非 `claude plugin`;之後再處理,見正文「opencode 的 skill」段)。
+> **skill**:Kimi 是純工具人,只裝 superpowers + repo-identity + self-evolution —— 見**附錄 B**;
+> 例行更新由 `update-skills.sh` 最後的 Kimi 段負責。
 
 ### A6. 驗證
 
@@ -348,4 +355,40 @@ kubectl -n cac exec deploy/openab-claude-kimi -- opencode models | grep -i kimi
 | OpenRouter key | `opencode auth login`(volume) | 同左(PVC);或 `secretEnv` 注入 `OPENROUTER_API_KEY`(宣告式,但 key 進 agent env) |
 | model 設定 | `docker exec` 寫 `~/.config/opencode/opencode.jsonc` | `kubectl exec` 寫 `~/.config/opencode/opencode.jsonc`(PVC) —— ACP 只讀全域這份,不讀 project `opencode.json` |
 | `AGENTS.md` | `docker exec` 寫檔(正文步驟 8) | `update-context.sh`(來源 `Kimi-AGENTS_v2.md`,寫進 PVC);**不設 `agentsMd`** |
-| skill | 暫不接 | 暫不接(opencode 走 `~/.claude/skills/` 目錄,非 `claude plugin`) |
+| skill | 附錄 B(手動一次) | `update-skills.sh` 最後的 Kimi 段(例行更新) |
+
+---
+
+## 附錄 B — Skill
+
+Kimi 是**純 coding 工具人**,只裝三樣,不碰 pipeline / jira / 104 系列 skill(那些跟定位衝突)。
+opencode 沒有 `claude plugin` 那套,兩條安裝路:
+
+| skill | 來源 | 安裝方式 |
+|---|---|---|
+| **superpowers**(全套:brainstorming / systematic-debugging / TDD / writing-plans …) | `obra/superpowers`(有原生 opencode plugin) | 寫進全域 `opencode.jsonc` 的 `plugin` 陣列 |
+| **repo-identity** | `wm4n/skill-registry`(PUBLIC)`plugins/openab-bot-skills/skills/repo-identity` | clone + symlink 進 `~/.config/opencode/skills/` |
+| **self-evolution** | `wm4n/skill-registry` `skills/self-evolution` | 同上 |
+
+superpowers 的 opencode plugin 會自己用 hook 注入 bootstrap context + 註冊 skills 目錄,**不用 symlink**;
+`repo-identity` / `self-evolution` 是純 `SKILL.md`,得 clone 來源 repo 再 symlink。
+
+### 例行更新
+
+跑 [`k3s/update-skills.sh`](./k3s/update-skills.sh)(最後一段是 Kimi 專屬),它會:
+1. 用 `node` 冪等把 `superpowers@git+https://github.com/obra/superpowers.git` 併進全域 `opencode.jsonc` 的 `plugin`、補 `permission.skill: {"*":"allow"}`(保留既有 `model`);
+2. `git pull` `wm4n/skill-registry`、重建 `repo-identity` / `self-evolution` 兩個 symlink;
+3. `rollout restart`(plugin 陣列改動要重啟才生效,開新 thread 不夠)。
+
+### 驗證
+
+```bash
+kubectl -n cac exec deploy/openab-claude-kimi -- sh -lc 'cat /home/node/.config/opencode/opencode.jsonc; echo; ls -l /home/node/.config/opencode/skills'
+```
+
+Discord @Kimi:「用 skill 工具列出目前有哪些 skill」→ 應看到 superpowers 全套 + `repo-identity` + `self-evolution`。
+
+> ⚠️ opencode/Bun 可能把 git-backed plugin pin 在 lockfile/cache,`restart` 後沒更新到最新 superpowers
+> 時,進 pod 清 opencode 的 package cache 再重裝。
+> ⚠️ 全域 `opencode.jsonc` 目前是純 JSON(無註解),`update-skills.sh` 的 `node` 合併靠這個前提;
+> 之後若手動加了 `//` 註解,那段合併會 parse 失敗。
