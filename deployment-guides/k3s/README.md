@@ -145,18 +145,24 @@ OPENAB_DATA_ROOT=/your/path python3 verify-stats-sources.py
 | rick / morty | claude-code | JSONL | 有（含 `thread_id`） | 區分 cache | 需價目表 | 2026-08-18 |
 | genie | claude-code | JSONL | 有 | 區分 cache | 需價目表 | 2026-08-11 |
 | summer | codex | JSONL | 有 | 區分 cache | 需價目表 | 2026-07-21 |
-| kimi / walle / eve | opencode | **SQLite** | 有（在 `part.data`） | 區分 cache | **CLI 已算好** | 依 `session.time_created` |
+| kimi / walle / eve | opencode | **SQLite** | 有（在 `part.data`） | 區分 cache | **CLI 已算好** | 2026-09-10 |
 
 Claude 家族走訂閱制，token 數不等於帳單金額；opencode 三隻走 OpenRouter，`session.cost`
 是 opencode 自己算的實際費用，這幾隻不需要我們自備價目表。
 
-五個要寫進 parser 的重點：
+七個要寫進 parser 的重點：
 
-1. **`message.usage` 底下的嵌套是明細，不是額外用量。** `cache_creation`
-   （ephemeral 1h/5m 的 TTL 拆解）與 `iterations[]`（每次 iteration）的欄位名跟外層
-   一模一樣，天真加總會虛報數倍。`server_tool_use` 是請求次數不是 token。另有
-   `toolUseResult.totalTokens` 與 compaction 的 `preTokens`/`postTokens`/
-   `cumulativeDroppedTokens` 完全不是 API 計費項目。
+1. **`usage` 底下的嵌套是明細，不是額外用量。** `cache_creation`（ephemeral 1h/5m 的
+   TTL 拆解）與 `iterations[]`（每次 iteration）的欄位名跟外層一模一樣，天真加總會
+   虛報數倍。`server_tool_use` 是請求次數不是 token。`message.diagnostics.
+   cache_miss_reason.cache_missed_input_tokens` 與 compaction 的 `preTokens`/
+   `postTokens`/`cumulativeDroppedTokens` 是診斷資訊，完全不是 API 計費項目。
+
+   但要區分**明細**與**巢狀的獨立用量**：`toolUseResult.usage` 是 Task tool 呼叫
+   subagent 的用量（實測 genie 有完整子樹，加總正好等於 `toolUseResult.totalTokens`），
+   那是**另一次真實的 API 呼叫**，性質跟 `iterations[]` 不同。是否要加取決於
+   subagent 自己的訊息有沒有也在 transcript 裡（Claude Code 用 `isSidechain: true`
+   標記）——有就會重複、要排除；沒有就是唯一來源、必須加。**此點待查證。**
 2. **任務數要數 distinct `message_id`，不是數 `sender_context` 出現次數。** 同一次
    任務會同時出現在 `message.content[].text` 與 `attachment.prompt[].text`
    （codex 是 `payload.content[].text` 與 `payload.message`）。`sender_context` 裡的
@@ -174,8 +180,38 @@ Claude 家族走訂閱制，token 數不等於帳單金額；opencode 三隻走 
    `channel_id` 是**父頻道**、`thread_id` 才是 thread 本身（`discord.rs:2140`）。
 5. **opencode 的 token 在四處重複，只能挑一層。** 見下節。
 
-另一個實測數字：`is_bot` 分佈 Rick 真人 17／bot 141（**89% 是 bot 互呼**）、Summer
-30／44、Genie 357／22。bot 互呼不分開算的話，Rick 的任務數會虛報近 9 倍。
+6. **codex 的 `total_token_usage` 是 session 累積值，不是單次用量。** 每個
+   `token_count` event 都重報一次到目前為止的累積，加總所有 event 就是把累積值再
+   累積（實測 summer：`total_token_usage.total_tokens=418458730` 對
+   `last_token_usage.total_tokens=21561974`，差 19.4 倍）。正確做法是每個 session
+   取最後一筆 `total_token_usage`，或加總所有 `last_token_usage`。**整個
+   `total_token_usage` 子樹都是累積值**，不只 `total_tokens` 那一欄。
+7. **opencode 的 `session.model` 是 JSON 物件不是字串**，形如
+   `{"id":"deepseek/deepseek-v4-pro-0813","providerID":"openrouter","variant":"low"}`。
+   `variant`（實測有 `low`／`default`）是 reasoning effort 之類的變體，可能影響計價，
+   所以 model 維度要是 `(id, variant)` 而不只是 id。字串形式的 model 在
+   `message.data.modelID`。
+
+### 任務來源要分三類，不是兩類
+
+`cron.rs:714` 的 usercron SenderContext 是 `message_id: None`、`is_bot: true`、
+`sender_id: "openab-cron"`。所以 `is_bot` 只能分出「非真人」，分不出「bot 互呼」與
+「排程觸發」——後者要靠 `sender_id == "openab-cron"`（或 `message_id` 為空）判別。
+
+實測 Rick 的 163 筆 `sender_context` 拆解如下，三個數字剛好閉合：
+
+| 類別 | 筆數 | 判別 |
+| --- | --- | --- |
+| 真人 | 17 | `is_bot=false` |
+| bot 互呼（三 bot 接力） | ~9 | `is_bot=true` 且有 `message_id` |
+| **cron 自動觸發** | **137** | `is_bot=true` 且 `message_id` 為空 |
+
+（17 + 9 = 26，正好等於帶 `message_id` 的筆數。）**Rick 的主要負載來自排程而非人或
+接力**，只分「真人 vs bot」會把這件事藏起來。Summer 真人 30／bot 44、Genie 真人
+360／bot 22。
+
+另外 `message_id` 為空表示無法用它去重，cron 觸發的任務要改用
+`(sender_id, timestamp)` 之類的鍵。
 
 ### opencode 的 SQLite 結構
 
