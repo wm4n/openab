@@ -139,6 +139,9 @@ docker -c orbstack exec -i -u node openab-kimi sh -c 'mkdir -p /home/node/.confi
 }
 EOF
 
+# 若之前照舊版說明建過 project config，清掉 —— 它會蓋過全域這份
+docker -c orbstack exec -u node openab-kimi rm -f /home/node/opencode.json
+
 docker -c orbstack restart openab-kimi
 ```
 
@@ -299,6 +302,11 @@ kubectl -n cac exec -i "$POD" -- sh -c 'cat > /home/node/.config/opencode/openco
   "model": "openrouter/moonshotai/kimi-k3"
 }
 EOF
+
+# 3b) 清掉 project config —— 舊版說明曾建 /home/node/opencode.json，它會「蓋過」
+#     全域 config（`opencode run` from /home/node 會讀到它），造成換模型改了全域
+#     卻沒生效。沒有就跳過。
+kubectl -n cac exec "$POD" -- rm -f /home/node/opencode.json
 
 # 4) gh 登入(單帳號即可,除非這隻要跨 wm4n / 104corp)
 kubectl -n cac exec -it "$POD" -- gh auth login --hostname github.com
