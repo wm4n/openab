@@ -33,7 +33,9 @@ bot 在卡、誰在燒量。
 
 ## 非目標（YAGNI，brainstorming 過程中逐一排除）
 
-- **不做即時儀表板。** 每日批次即可；Grafana 要另外架 Prometheus，第一版不碰。
+- **不做長駐的儀表板服務。** 網頁報表**在範圍內**，但形式是「CLI 產出一個自帶資源
+  的 HTML 檔，用瀏覽器開」，不是架一個會自己更新的服務。Grafana 那條要另外架
+  Prometheus，第一版不碰；nginx／靜態檔服務也不需要（見「元件 4」）。
 - **不改 openab 本體。** 已確認 openab 完全沒有 metrics／OTEL，ACP 層的
   `classify_notification`（`crates/openab-core/src/acp/protocol.rs:224`）只認 6 種
   `sessionUpdate`、其餘 `_ => None` 丟掉，所以 token 只能從 CLI 端拿；既然如此，
@@ -171,15 +173,22 @@ Summer 真人 30／bot 44，Genie 真人 360／bot 22。
    ├─ .local/share/opencode/opencode.db
    └─ .openab/thread_map.json
                     │
-                    ▼  parser（3 個實作，1 個共同輸出契約）
-        正規化事件 JSONL（task 流 + usage 流，按日切檔）
+                    ▼  collect.py — parser × 3（★ CronJob 每天跑這段，只收集）
+        正規化事件 JSONL（task 流 + usage 流，按日切檔，存獨立 PVC）
                     │
-                    ▼  aggregator（純函數）
+                    ▼  aggregate.py（純函數）
               每日指標 SQLite
                     │
-                    ▼  renderer
-            markdown 日報／週報
+                    ▼  report.py — 使用者手動跑，可指定日期範圍與 bot
+        ┌───────────┴───────────┐
+   terminal / markdown      單一 HTML 檔
+                            （自帶資源，瀏覽器直接開，不需服務器）
 ```
+
+**分工的關鍵**：CronJob 只負責收集，因為原始資料會被 CLI 清掉（見元件 4 的
+「保留期限」）、錯過就永久遺失。報表則是隨時手動產生，吃已累積的正規化事件，
+所以可以重跑、可以改指標定義後重算歷史。這也是中間那層正規化事件存在的第二個
+理由。
 
 四個元件各自可獨立測試。中間「正規化事件」這一層是刻意加的：
 
@@ -366,13 +375,81 @@ by 誰是精確值，token by 誰是估計值**，報表不可讓兩者看起來
 這只有 session 粒度、不是 turn 粒度，也無法區分「失敗」與「使用者只是 @ 了一下沒
 下任務」。**定位是「揪出可疑 bot 的紅旗」，不是失敗率量測**，報表要這樣標。
 
-## 元件 4：renderer
+## 元件 4：renderer 與交付形式
 
-markdown 日報與週報，落在一個獨立目錄（或直接貼進 Discord 通知頻道，第一版先產檔
-案）。每份報表開頭必須有「資料覆蓋率」區塊，見下節。
+**收集與報表是兩件不同的事，時程也不同：**
+
+- **收集必須自動定期跑**，因為原始資料會消失（見下節「保留期限」）。這是 CronJob
+  的唯一職責——把原始儲存轉成正規化事件並累積起來。它不產報表。
+- **報表隨時手動產生**，吃已累積的正規化事件，不碰原始儲存。所以報表可以重跑、
+  可以改指標定義後重算歷史、可以指定任意日期範圍。
+
+### 交付形式：一支 CLI，兩種輸出
+
+使用者選定 CLI 工具 + 網頁儀表板。**兩者是同一支 CLI 的兩種輸出格式**，不是兩套
+系統：
+
+```bash
+# 終端機直接看（預設）
+report.py --since 2026-09-01 --until 2026-09-10
+
+# 只看某幾隻
+report.py --since 2026-09-01 --bots rick,morty
+
+# 產 markdown（貼給人、進 git、或給 LLM 讀）
+report.py --since 2026-09-01 --format md -o report.md
+
+# 產網頁儀表板
+report.py --since 2026-09-01 --format html -o report.html
+```
+
+HTML 輸出是**自帶所有資源的單一檔案**：inline CSS、圖表用程式直接產生的 inline
+SVG，**零外部請求**（不連 CDN、不載外部字型、不 fetch）。所以：
+
+- `open report.html` 就能看，**不需要 nginx 或任何靜態檔服務**
+- 可以直接寄給人、丟進 Slack、或發佈成網頁而不會破圖
+- 用 `prefers-color-scheme` 支援深淺色
+
+圖表刻意用**程式產生 SVG** 而非 JS 圖表庫：自帶資源的要求下引入 JS 庫要整包 inline
+（動輒數百 KB），而這裡需要的圖形（每日折線、堆疊柱狀、model 佔比）產生 SVG 的
+程式碼比 inline 一個庫更短，而且**可以單元測試**（斷言 SVG 的 path 座標），
+JS 庫渲染的結果測不到。
+
+### 報表內容
+
+每份報表開頭必須有「資料覆蓋率」區塊（見下節），以及一行標明時區
+（Asia/Taipei）與資料保留期限警告。
 
 頻道名稱查表：`channel_id` → 人類可讀名稱的對照表放設定檔，初始值取自
 `deployment-guides/k3s/values-openab-*.yaml` 的註解。
+
+`allowedUsers` 非空的 bot 必須標註人數上界（見「已知限制」第 6 條）。
+
+### 保留期限：為什麼收集不能等到要報表時才做
+
+原始資料不是永久的。Claude Code 有 transcript 保留期限設定
+（`cleanupPeriodDays`，預設 30 天），compaction 也會重寫檔案。實測的可回溯起日
+與這個推論一致：
+
+| bot | CLI | 可回溯起日 | 距 2026-09-11 |
+| --- | --- | --- | --- |
+| genie | claude-code | 2026-08-11 | **31 天** |
+| rick／morty | claude-code | 2026-08-18 | 24 天 |
+| summer | codex | 2026-07-21 | 52 天 |
+
+genie 卡在 31 天而 codex 那隻有 52 天，**符合「claude-code 在 30 天砍舊
+transcript、codex 不砍」的模式**。若成立，現在看到的「1 個月歷史」是滾動窗口，
+每過一天就少一天最舊的。
+
+**待驗證**（實作第一步就要做，因為它決定要多快上線收集器）：
+
+```bash
+sudo grep -o '"cleanupPeriodDays":[0-9]*' /data/william/openab/agent-*/.claude/settings.json
+```
+
+有設定值就確認了；沒有設定則是走預設 30 天。不論結果如何，收集器都要定期跑——
+差別只在「有多急」。**若 30 天成立，那容量模型能用的歷史上限就是 30 天，而不是
+我先前說的「1 到 2 個月」**，那句話要在報表與 spec 裡修正。
 
 ## 資料完整性與錯誤處理
 
@@ -395,12 +472,13 @@ agent 的 HOME，也避免統計程式持有 agent 家目錄的寫入權限。
 
 | 檔案 | 動作 |
 | --- | --- |
-| `deployment-guides/k3s/usage-stats/collect.py` | 新增：parser × 3 + 增量水位 |
+| `deployment-guides/k3s/usage-stats/collect.py` | 新增：parser × 3 + 增量水位。**CronJob 跑的就是這支**，只收集不產報表 |
 | `deployment-guides/k3s/usage-stats/aggregate.py` | 新增：指標計算（純函數） |
-| `deployment-guides/k3s/usage-stats/render.py` | 新增：markdown 報表 |
-| `deployment-guides/k3s/usage-stats/config.example.toml` | 新增：價目表、頻道名對照、否定詞清單 |
-| `deployment-guides/k3s/usage-stats/cronjob.yaml` | 新增：CronJob + hostPath + 獨立 PVC（沿用 `jira-grill-poller` 形式） |
-| `deployment-guides/k3s/usage-stats/tests/` | 新增：三份去識別化樣本 fixture + 邊界案例 |
+| `deployment-guides/k3s/usage-stats/report.py` | 新增：**使用者手動跑的 CLI**。`--since`／`--until`／`--bots`／`--format {text,md,html}`／`-o` |
+| `deployment-guides/k3s/usage-stats/render_html.py` | 新增：自帶資源的單一 HTML（inline CSS + 程式產生的 inline SVG，零外部請求） |
+| `deployment-guides/k3s/usage-stats/config.example.toml` | 新增：價目表、頻道名對照、否定詞清單、allowlist 人數上界 |
+| `deployment-guides/k3s/usage-stats/cronjob.yaml` | 新增：CronJob + hostPath 唯讀掛 `/data/william/openab` + 獨立 PVC（沿用 `jira-grill-poller` 形式） |
+| `deployment-guides/k3s/usage-stats/tests/` | 新增：三份去識別化樣本 fixture + 邊界案例 + SVG 座標斷言 |
 | `deployment-guides/k3s/README.md` | 更新：檔案表與安裝節錄 |
 | `deployment-guides/K3S.md` | 更新：新增 CronJob 的部署步驟與靜態 PV |
 
@@ -430,9 +508,12 @@ agent 的 HOME，也避免統計程式持有 agent 家目錄的寫入權限。
 3. **平台維度依賴 `thread_map.json`。** `sender_context.channel` 在 gateway 平台
    （含 Google Chat）給的是 channel_type 而非平台名。若 `thread_map` 查不到就記
    `unknown`。
-4. **opencode 的可回溯範圍只到 2026-09-10。** 三隻 bot 剛部署（2026-08-24 之後），
-   歷史短，不足以支撐容量模型校準；校準主要靠 claude-code 三隻與 codex（最早
-   2026-07-21）。
+4. **可回溯的歷史比想像中短，而且是滾動窗口。** opencode 三隻只到 2026-09-10
+   （剛部署）。claude-code 三隻疑似受 30 天保留期限限制（genie 卡在 31 天，見元件 4
+   的「保留期限」），若成立則**歷史上限就是 30 天、每天少一天**，容量模型的校準
+   樣本會比預期小很多；只有 codex（最早 2026-07-21，52 天）看起來不受限。這使得
+   「盡快上線收集器」從優化變成**時效問題**——現在不收，最舊的資料每天在消失。
+   實作第一步就要跑那條 `cleanupPeriodDays` 檢查確認。
 5. **`toolUseResult.usage` 的判定基於 `isSidechain` 全為 `false` 的觀察。** 若
    Claude Code 未來改成把 subagent 訊息寫進同一份 transcript，這條會變成重複計算。
    量級約 0.1%，但格式漂移偵測要涵蓋這個欄位。
