@@ -36,7 +36,7 @@ agents:
     discord:
       enabled: true
       # ⚠️ channel ID 用字串引號（或 helm --set-string），避免 float64 精度掉位
-      allowedChannels: ["<KIMI_CHANNEL_ID>"]
+      allowedChannels: ["1528965074562191420", "1528965173761802420", "1547419153474785372"]
       allowedUsers: []                # 空 = 頻道內任何人；要鎖就填 user ID
       allowBotMessages: "mentions"
       trustedBotIds: []
