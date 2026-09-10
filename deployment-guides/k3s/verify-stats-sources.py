@@ -399,6 +399,22 @@ def report_agent(name, cli, f, files):
         ids = [s.get("message_id") for s in f.senders if s.get("message_id")]
         print(f"          distinct message_id : {len(set(ids))}/{len(ids)}"
               "   ← 任務數要數這個（同一任務會重複出現在多個路徑）")
+        # 「by 誰 trigger」維度的實際分布。注意 allowedUsers 非空的 bot
+        # （discord.rs:2194 的 is_denied_user 是硬性閘門，allowedRoleIds 不會
+        # 放寬它）只會出現被列入的那些人，這裡看到單一使用者不代表沒人想用。
+        who = collections.Counter()
+        for s in f.senders:
+            if s.get("sender_id") == "openab-cron":
+                who["(cron 排程)"] += 1
+            elif s.get("is_bot"):
+                who["(bot) " + (s.get("sender_name") or s.get("sender_id") or "?")] += 1
+            else:
+                who["%s / %s" % (s.get("display_name") or "?",
+                                 s.get("sender_name") or "?")] += 1
+        humans = [k for k in who if not k.startswith("(")]
+        print(f"          觸發者（真人 {len(humans)} 位）:")
+        for k, v in who.most_common(8):
+            print(f"            {k} × {v}")
         schemas = collections.Counter(s.get("schema", "(無)") for s in f.senders)
         print(f"          schema : {', '.join(f'{k}×{v}' for k, v in schemas.most_common())}")
     else:

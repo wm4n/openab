@@ -216,6 +216,7 @@ event 流、opencode 的 token 在另一張表）。硬做會產生看起來合�
   "session_id": "28322078-f996-4db2-9541-5ef74f1a4a64",
   "sender_id": "824092654060830770",
   "sender_name": "wm4n",
+  "display_name": "william",
   "source": "human",
   "occurred_at": "2026-09-10T06:32:10Z",
   "source_file": "…/-home-node/28322078-….jsonl",
@@ -224,6 +225,11 @@ event 流、opencode 的 token 在另一張表）。硬做會產生看起來合�
 ```
 
 - `source` ∈ `human` | `bot_relay` | `cron`，依上節三分類。
+- **觸發者維度**：`sender_id` 是穩定鍵，`sender_name`（Discord 全域帳號，實測
+  `wm4n`）與 `display_name`（伺服器暱稱，實測 `william`）都會隨使用者改名而變，
+  所以兩者都在事件發生當下存下來，聚合與去重一律以 `sender_id` 為準，名稱只用於
+  顯示。報表顯示名稱時取該 `sender_id` **最近一次**出現的 `display_name`。
+  `source == "cron"` 時 `sender_id` 固定為 `openab-cron`，不是真人。
 - `dedup_key`：`message_id` 非空時用 `platform:message_id`；cron 觸發（`message_id`
   為空）時用 `platform:openab-cron:{thread_id}:{timestamp}`。**去重是必須的**——
   同一次任務會出現在多個路徑（實測 summer 74 筆只有 37 個 distinct）。
@@ -324,6 +330,16 @@ SQLite 以 (表, 最大 `time_updated`) 當水位。
 sender（實務上的常見情況），歸因無歧義；有多位時標為 `shared` 不強行拆分。報表要
 顯示無歧義歸因的覆蓋率，否則讀者無法判斷這個數字可信到什麼程度。
 
+### 每人任務數
+
+按 `(bot, sender_id, 日期)` 分組計數，只算 `source == "human"`。這一項是精確的
+（每筆任務都帶觸發者，無歧義），跟上面 token 的 session 層歸因不同——**任務數
+by 誰是精確值，token by 誰是估計值**，報表不可讓兩者看起來同等可信。
+
+同時輸出「每隻 bot 的活躍觸發者人數」（distinct `sender_id`），這是採用率報表的
+核心數字之一。但要注意下面「已知限制」第 6 條：`allowedUsers` 非空的 bot，這個數字
+的上界就是 allowlist 的長度，看到 1 不代表沒人想用。
+
 ### 摩擦指標（**不是滿意度**）
 
 三個弱訊號，各自標明可信度，報表欄位名稱一律用「摩擦」不用「滿意」：
@@ -420,7 +436,18 @@ agent 的 HOME，也避免統計程式持有 agent 家目錄的寫入權限。
 5. **`toolUseResult.usage` 的判定基於 `isSidechain` 全為 `false` 的觀察。** 若
    Claude Code 未來改成把 subagent 訊息寫進同一份 transcript，這條會變成重複計算。
    量級約 0.1%，但格式漂移偵測要涵蓋這個欄位。
-6. **morty 的 18 進 2 出尚未確認根因。** 已知 `thread_map` 在 `session/new` 後即
+6. **rick／morty 目前只有一位真人能觸發，所以「活躍使用者數」在這兩隻身上會恆為
+   1，不是採用率低。** `values-openab-claude.yaml:48` 與 `:100` 的
+   `allowedUsers: ["824092654060830770"]` 是硬性閘門——`discord.rs:2194` 的
+   `is_denied_user` 對非 bot 一律要求列在 allowlist 裡，而 `allowedRoleIds`
+   （`discord.rs:453-459`）只影響「能不能用角色 mention 觸發」，**不會放寬准入**。
+   所以有 CAC-Builder 角色的人 @ 該角色，rick 會認得是 mention，但仍會被 user
+   allowlist 擋掉。genie／summer／kimi／walle／eve 的 `allowedUsers` 為空（= 頻道
+   內任何人），這幾隻的人數維度才有意義。要對 rick／morty 取得有意義的 per-user
+   統計，前提是先清空 `allowedUsers`——那是部署決策不是統計功能，故列為限制。
+   報表在 allowlist 非空時必須標註「此 bot 受 allowlist 限制，人數上界為 N」，
+   不可讓 1 被讀成「沒人用」。
+7. **morty 的 18 進 2 出尚未確認根因。** 已知 `thread_map` 在 `session/new` 後即
    寫入，所以落差代表「開了 session 沒產出」，但究竟是 API 失敗（如 upstream 容量
    事件）、prompt 未送達、或使用者只是 @ 了一下，需要另外查 Discord 歷史或
    `kubectl logs` 才能區分。
