@@ -49,6 +49,8 @@ agents:
       allowBotMessages: "mentions"
       trustedBotIds: ["1519868630064562278", "1521431781641818202"] # Rick, Morty
       allowedRoleIds: ["1528997980714303640"]                        # CAC-Reviewer（Part M）
+    reactions:
+      toolDisplay: "compact"          # 與 Rick/Morty/Genie/Kimi 一致
     # usercron：cronjob.toml 熱重載排程（openab-schedule skill 用）；
     # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
     cron:
