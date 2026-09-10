@@ -17,6 +17,7 @@
 | `values-secret-walle.example.yaml` | 複製成 `values-secret-walle.yaml`（gitignored）填 Wall-E 的 Discord token |
 | `values-secret-eve.example.yaml` | 複製成 `values-secret-eve.yaml`（gitignored）填 Eve 的 Discord token |
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
+| `verify-stats-sources.py` | 唯讀診斷：掃各 agent PVC 上的 transcript，確認統計要用的欄位在不在（見下方「統計資料源診斷」） |
 
 ## 快速驗證（在有 helm 的機器）
 
@@ -92,3 +93,45 @@ helm upgrade openab-claude ../../charts/openab -n cac \
 ```
 
 靜態 PV：`pv-cac-walle`（claimRef `openab-claude-walle`）、`pv-cac-eve`（claimRef `openab-claude-eve`）。bootstrap 見 [`../bot-setup-opencode-kimi.md`](../bot-setup-opencode-kimi.md) 附錄 C。
+
+## 統計資料源診斷（`verify-stats-sources.py`）
+
+要在 bot 頻道做使用統計（每日任務數／對話數／token 對應 model），資料不在 openab
+本體——`crates/openab-core` 沒有任何 metrics 或 OTEL，而 ACP 層的
+`classify_notification` 只認 6 種 `sessionUpdate`、其餘丟掉，所以 token 用量只能從
+各 agent CLI 自己的 transcript 拿。
+
+可行的關鍵在於 openab 會把 `SenderContext`（`crates/openab-core/src/adapter.rs`）以
+JSON 注入**每一次** prompt，而 prompt 原文會被 CLI 寫進 transcript：
+
+```
+<sender_context>
+{"schema":"openab.sender.v1","sender_id":…,"channel_id":…,"is_bot":false,"timestamp":…}
+</sender_context>
+```
+
+`is_bot` 讓 bot 互呼（三 bot 接力）能跟真人任務分開算，不然採用率數字會被灌水。
+四個生產者（`discord.rs` / `slack.rs` / `gateway.rs` / `cron.rs`）吐同一個 schema，
+所以這條路跟平台無關——將來換 Slack 或 Google Chat 不用改統計側。
+
+**這支腳本要驗的是：codex 與 opencode 到底有沒有把 `sender_context` 寫進它們自己的
+transcript**（Claude Code 家族幾乎確定有，另兩家是推測）。沒有的話那幾隻只會有
+token 數，拿不到頻道／發話者維度。
+
+PV 是 `local` 型（`K3S.md` 第 2 步，路徑 `/data/william/openab/agent-<name>`），
+所以直接讀檔就好，不需要 `kubectl exec`：
+
+```bash
+python3 verify-stats-sources.py | tee /tmp/openab-stats-verify.txt
+
+# 資料根路徑不同時
+OPENAB_DATA_ROOT=/your/path python3 verify-stats-sources.py
+```
+
+唯讀，不改任何東西，也不印任何對話內容——只印欄位結構與計數。輸出最後會有一張
+判定表（每隻 bot 的 `sender_context` / token / cache 有無，以及可回溯起日）。
+
+設計上是**探索格式而不是假設格式**：遞迴走整棵 JSON，自己找出 `sender_context`
+在哪、token 數字在哪個路徑、model 欄位叫什麼。所以三家 CLI 共用一支，CLI 升版改
+格式之後也還能用——可以拿來當偵測格式漂移的常備工具（`sender_context` 從「有」變
+「無」就是上游改了注入方式或 CLI 改了存法）。
