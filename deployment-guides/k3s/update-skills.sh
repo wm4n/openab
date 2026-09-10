@@ -55,6 +55,13 @@
 #    tradeoff：這個 plugin 沒辦法只挑 grilling 裝，Rick 會多出 diagnosing-bugs/tdd/
 #    prototype/wizard 等用不到的 skill，**已知且接受**。只給 Rick，不給
 #    Morty/Summer/Genie——目前只有 jira-grill 需要它。
+# ⚠️ 2026-09-10 只給 Genie 新增 `cac-lab@cac-plugins`（來源同 team-bot 的
+#    104corp/104cac-claude-marketplace，PR #16 合併後新增的 plugin）：內含
+#    104-jira-guideline / 104-jira-create-subtask / 104-jira-deploy-ticket-audit
+#    等 104corp Jira 作業 skill。只給 Genie——它是 104corp 專案專用 bot；
+#    Rick/Morty/Summer 不需要。marketplace `cac-plugins` 已因 team-bot 加過，
+#    這裡只做 plugin install + update。`cac-lab` 定位是「實驗性草稿區」，
+#    之後 skill 若轉正到 `cac` plugin，這行要跟著移除、改裝 `cac@cac-plugins`。
 
 set -euo pipefail
 
@@ -105,6 +112,8 @@ kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketpl
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace update cac-plugins || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install team-bot@cac-plugins || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update team-bot@cac-plugins
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install cac-lab@cac-plugins || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update cac-lab@cac-plugins
 echo
 
 echo "=== Summer (openab-codex-summer) ==="
