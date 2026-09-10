@@ -17,8 +17,7 @@
 | `values-secret-walle.example.yaml` | 複製成 `values-secret-walle.yaml`（gitignored）填 Wall-E 的 Discord token |
 | `values-secret-eve.example.yaml` | 複製成 `values-secret-eve.yaml`（gitignored）填 Eve 的 Discord token |
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
-| `verify-stats-sources.py` | 唯讀診斷：掃各 agent PVC 上的 transcript，確認統計要用的欄位在不在（見下方「統計資料源診斷」） |
-| `probe-opencode-db.py` | 唯讀診斷（**臨時**）：探查 opencode 的 SQLite schema。opencode 不存 JSON 檔而是 `opencode.db`，schema 摸清後這支會併進 `verify-stats-sources.py` 並刪除 |
+| `verify-stats-sources.py` | 唯讀診斷：掃各 agent PVC 上的 transcript／SQLite，確認統計要用的欄位在不在（見下方「統計資料源診斷」） |
 
 ## 快速驗證（在有 helm 的機器）
 
@@ -139,14 +138,19 @@ OPENAB_DATA_ROOT=/your/path python3 verify-stats-sources.py
 
 ### 2026-09-10 首次實跑結果
 
-| bot | CLI | sender_context | token | 可回溯起日 |
-| --- | --- | --- | --- | --- |
-| rick / morty | claude-code | 有（欄位全齊，含 `thread_id`） | 有，區分 cache | 2026-08-18 |
-| genie | claude-code | 有 | 有，區分 cache | 2026-08-11 |
-| summer | codex | 有 | 有，區分 cache | 2026-07-21 |
-| kimi / walle / eve | opencode | 待查 | 待查 | — |
+**七隻全部可用**，四項統計（任務數／對話數／token 對應 model／摩擦指標）的資料都拿得到。
 
-三個要寫進 parser 的重點：
+| bot | CLI | 資料形式 | sender_context | token | 成本 | 可回溯起日 |
+| --- | --- | --- | --- | --- | --- | --- |
+| rick / morty | claude-code | JSONL | 有（含 `thread_id`） | 區分 cache | 需價目表 | 2026-08-18 |
+| genie | claude-code | JSONL | 有 | 區分 cache | 需價目表 | 2026-08-11 |
+| summer | codex | JSONL | 有 | 區分 cache | 需價目表 | 2026-07-21 |
+| kimi / walle / eve | opencode | **SQLite** | 有（在 `part.data`） | 區分 cache | **CLI 已算好** | 依 `session.time_created` |
+
+Claude 家族走訂閱制，token 數不等於帳單金額；opencode 三隻走 OpenRouter，`session.cost`
+是 opencode 自己算的實際費用，這幾隻不需要我們自備價目表。
+
+五個要寫進 parser 的重點：
 
 1. **`message.usage` 底下的嵌套是明細，不是額外用量。** `cache_creation`
    （ephemeral 1h/5m 的 TTL 拆解）與 `iterations[]`（每次 iteration）的欄位名跟外層
@@ -161,21 +165,39 @@ OPENAB_DATA_ROOT=/your/path python3 verify-stats-sources.py
    subagent 時傳的參數（值會是 `opus` 這種簡寫），`<synthetic>` 是 CLI 內部合成訊息
    沒有實際 API 呼叫；codex 的 `payload.collaboration_mode.settings.model` 是設定值。
    只有 `message.model`（codex 為 `payload.model`）是實際計費的 model。
+4. **`channel` 欄位不是頻道名稱，而且三個 adapter 語意不一致。** `discord.rs` 硬寫
+   `"discord"`、`slack.rs` 硬寫 `"slack"`、`gateway.rs` 放的是
+   `event.channel.channel_type`（頻道**型別**）。所以頻道維度只能用 `channel_id`，
+   名稱要另外查表（對照表就在本目錄的 values 檔註解裡）。**平台維度也不能靠它**
+   ——Google Chat 走 gateway，拿到的會是 channel_type 而非平台名；可靠來源是
+   `thread_map.json` 的 `platform:thread_id` key。另外在 thread 裡
+   `channel_id` 是**父頻道**、`thread_id` 才是 thread 本身（`discord.rs:2140`）。
+5. **opencode 的 token 在四處重複，只能挑一層。** 見下節。
 
 另一個實測數字：`is_bot` 分佈 Rick 真人 17／bot 141（**89% 是 bot 互呼**）、Summer
 30／44、Genie 357／22。bot 互呼不分開算的話，Rick 的任務數會虛報近 9 倍。
 
-## opencode 的 SQLite（`probe-opencode-db.py`）
+### opencode 的 SQLite 結構
 
-opencode 不像 Claude Code / codex 寫 JSONL，它把 session 存在
-`~/.local/share/opencode/opencode.db`（SQLite，WAL 模式），所以
-`verify-stats-sources.py` 掃不到（只會掃到 `.config/opencode` 裡幾百 bytes 的設定檔）。
+opencode 不寫 JSONL，它把 session 存在 `~/.local/share/opencode/opencode.db`
+（SQLite，WAL 模式）。20 張表，統計相關的四張，而**同一筆 token 在四處重複出現**：
 
-```bash
-sudo python3 probe-opencode-db.py /data/william/openab/agent-kimi
-```
+| 表 | 用途 | token |
+| --- | --- | --- |
+| `session` | 每個 session 一列，**權威加總** | `tokens_input/output/reasoning/cache_read/cache_write` + `cost:REAL` |
+| `message` | per-message，`data:TEXT` 是 JSON | `data.tokens.{input,output,total,reasoning,cache.{read,write}}` |
+| `part` | message 的組成部分；`sender_context` 在這裡 | `data.tokens.*` —— **與 message 層數字相同**（實測 walle 兩者 `tokens.total` 皆 1201009） |
+| `event` | event sourcing log | `data.info.tokens.*`、`data.part.tokens.*` —— 又一份 |
 
-DB 正在被跑著的 pod 寫入，所以這支會**先把 `db`/`-wal`/`-shm` 複製到暫存目錄再讀
-複本**，完全不碰原檔（連唯讀開啟都不做——WAL 模式下唯讀開啟可能需要建 `-shm`）。
-輸出含全部表的 schema、每張表的列數、`sender_context` 命中在哪張表哪個欄位，以及
-全 DB 掃出來的 token／cost／model 候選路徑。
+所以 parser 只能挑一層：**per-turn 用 `message`，per-session 用 `session`；絕不從
+`part` 或 `event` 加總 token。** `sender_context` 走
+`part.data` → `part.message_id` → `message.session_id` → `session`。
+
+另外 `session.parent_id` 非空表示是 subagent 的子 session，加總時要處理否則重複。
+`model` 也有同值重複路徑（`message.data.modelID` 與 `message.data.model.modelID`），
+取前者。實測 kimi 的 DB 裡出現三個 model（`moonshotai/kimi-k3`、
+`moonshotai/kimi-k2.7-code`、`google/gemini-3-pro-image-preview`）——一隻 bot 不只用
+一個 model，所以資料結構不能假設 bot 與 model 一對一。
+
+DB 正被跑著的 pod 寫入，所以腳本**先把 `db`/`-wal`/`-shm` 複製到暫存目錄再讀複本**，
+完全不碰原檔（WAL 模式下連唯讀開啟都可能需要建 `-shm`）。

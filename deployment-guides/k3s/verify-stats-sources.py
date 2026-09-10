@@ -53,6 +53,12 @@ class Findings:
         self.bad = 0
         self.files = 0
         self.total_files = 0
+        # SQLite（opencode）用：日期範圍自己算，不靠檔案 mtime；
+        # notes 放「同一筆 token 在哪些地方重複出現」這種給 parser 作者的警告。
+        self.date_min = None
+        self.date_max = None
+        self.notes = []
+        self.cost = 0.0
 
 
 def walk(node, path, f, per_record, in_token=False):
@@ -127,6 +133,163 @@ def scan_file(path, f):
         f.max_sc_per_record = max(f.max_sc_per_record, per[0])
 
 
+# --- opencode：SQLite，不是 JSON 檔 ---------------------------------------
+#
+# opencode 把 session 存在 ~/.local/share/opencode/opencode.db（WAL 模式）。
+# 20 張表，統計相關的只有四張，而**同一筆 token 在四處重複出現**：
+#
+#   session  ← 權威加總。tokens_input/output/reasoning/cache_read/cache_write
+#              + cost:REAL（opencode 自己算好成本，這幾隻不需要價目表）
+#              parent_id 表示子 session（subagent），加總時要處理否則重複
+#   message  ← per-message。data:TEXT 的 JSON 有 tokens.{input,output,total,
+#              reasoning,cache.{read,write}} 與 modelID
+#   part     ← message 的組成部分，但 data 裡**也帶 tokens**，數字與 message
+#              層相同（實測 walle: part 與 message 的 tokens.total 皆 1201009）
+#   event    ← event sourcing log，data 裡又有一份 info.tokens / part.tokens
+#
+# 所以 parser 只能挑一層：per-turn 用 message，per-session 用 session。
+# 絕不從 part 或 event 加總 token。
+#
+# sender_context 落在 part.data（持久）與 event.data（event log，可能被裁剪），
+# 所以走 part → part.message_id → message.session_id → session。
+
+OPENCODE_DB_CANDIDATES = (
+    ".local/share/opencode/opencode.db",
+    ".local/state/opencode/opencode.db",
+)
+
+
+def find_opencode_db(home):
+    for c in OPENCODE_DB_CANDIDATES:
+        p = os.path.join(home, c)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def scan_opencode_db(db_path, f):
+    """讀 opencode 的 SQLite。
+
+    DB 正被跑著的 pod 寫入，所以先把 db/-wal/-shm 複製到暫存目錄再讀複本，
+    完全不碰原檔 —— WAL 模式下連唯讀開啟都可能需要建 -shm 檔。複本可能有
+    一點不一致，對「欄位在不在」的驗證無妨。
+    """
+    import shutil
+    import sqlite3
+    import tempfile
+
+    f.files = f.total_files = 1
+    with tempfile.TemporaryDirectory() as tmp:
+        snap = os.path.join(tmp, "snapshot.db")
+        shutil.copy2(db_path, snap)
+        for ext in ("-wal", "-shm"):
+            src = db_path + ext
+            if os.path.isfile(src):
+                shutil.copy2(src, snap + ext)
+
+        con = sqlite3.connect(snap)
+        con.text_factory = lambda b: b.decode("utf-8", "replace")
+        cur = con.cursor()
+        have = {r[0] for r in cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+
+        def table_cols(t):
+            return {r[1] for r in cur.execute('PRAGMA table_info("%s")' % t)}
+
+        # --- sender_context：part.data 是持久來源 ---
+        for tbl in ("part", "event"):
+            if tbl not in have:
+                continue
+            try:
+                rows = cur.execute(
+                    'SELECT data FROM "%s" WHERE CAST(data AS TEXT) LIKE ?' % tbl,
+                    ("%sender_context%",),
+                ).fetchall()
+            except sqlite3.Error:
+                continue
+            for (blob,) in rows:
+                if not isinstance(blob, str):
+                    continue
+                per = [0]
+                try:
+                    walk(json.loads(blob), tbl + ".data", f, per)
+                except Exception:
+                    walk(blob, tbl + ".data", f, per)
+                f.max_sc_per_record = max(f.max_sc_per_record, per[0])
+            if rows:
+                f.notes.append("%s.data 有 %d 列含 sender_context" % (tbl, len(rows)))
+
+        # --- token / cost / model：session 表是權威加總 ---
+        if "session" in have:
+            cols = table_cols("session")
+            tok = [c for c in (
+                "tokens_input", "tokens_output", "tokens_reasoning",
+                "tokens_cache_read", "tokens_cache_write") if c in cols]
+            sel = tok + [c for c in ("cost", "model", "time_created", "parent_id") if c in cols]
+            if sel:
+                for row in cur.execute('SELECT %s FROM session' % ", ".join(
+                        '"%s"' % c for c in sel)):
+                    rec = dict(zip(sel, row))
+                    for c in tok:
+                        v = rec.get(c)
+                        if isinstance(v, int):
+                            f.token_sums["session." + c] += v
+                    if isinstance(rec.get("cost"), (int, float)):
+                        f.cost += rec["cost"]
+                    if rec.get("model"):
+                        f.model_paths["session.model"] += 1
+                        f.model_values[rec["model"]] += 1
+                    t = rec.get("time_created")
+                    if isinstance(t, int) and t > 0:
+                        secs = t / 1000.0          # epoch millis
+                        f.date_min = secs if f.date_min is None else min(f.date_min, secs)
+                        f.date_max = secs if f.date_max is None else max(f.date_max, secs)
+                nkids = cur.execute(
+                    "SELECT COUNT(*) FROM session WHERE parent_id IS NOT NULL AND parent_id != ''"
+                ).fetchone()[0] if "parent_id" in cols else 0
+                nses = cur.execute("SELECT COUNT(*) FROM session").fetchone()[0]
+                f.notes.append(
+                    "session 表 %d 列（其中 %d 列有 parent_id = subagent 子 session，"
+                    "加總要處理否則重複），cost 欄位已由 opencode 算好" % (nses, nkids))
+
+        # --- message：per-turn 粒度，順便交叉核對 token ---
+        if "message" in have:
+            f.records = cur.execute("SELECT COUNT(*) FROM message").fetchone()[0]
+            msg_tok = collections.Counter()
+            msg_models = collections.Counter()
+            for (blob,) in cur.execute("SELECT data FROM message"):
+                if not isinstance(blob, str):
+                    continue
+                try:
+                    obj = json.loads(blob)
+                except Exception:
+                    f.bad += 1
+                    continue
+                # 只信白名單路徑的 modelID：data.model.modelID 是同值重複
+                mid = obj.get("modelID")
+                if isinstance(mid, str):
+                    msg_models[mid] += 1
+                t = obj.get("tokens")
+                if isinstance(t, dict):
+                    for k, v in t.items():
+                        if isinstance(v, int):
+                            msg_tok["message.data.tokens." + k] += v
+                        elif isinstance(v, dict):
+                            for kk, vv in v.items():
+                                if isinstance(vv, int):
+                                    msg_tok["message.data.tokens.%s.%s" % (k, kk)] += vv
+            f.token_sums.update(msg_tok)
+            for m, n in msg_models.items():
+                f.model_paths["message.data.modelID"] += n
+                f.model_values[m] += n
+
+        for tbl in ("part", "event", "session_message"):
+            if tbl in have:
+                n = cur.execute('SELECT COUNT(*) FROM "%s"' % tbl).fetchone()[0]
+                f.notes.append("%s 表 %d 列（token 不可從此加總，與 message 層重複）" % (tbl, n))
+        con.close()
+
+
 def collect_files(root):
     out = []
     for dirpath, _dirs, names in os.walk(root):
@@ -172,6 +335,18 @@ def detect_cli(home):
 
 def scan_agent(home):
     """回傳 (cli, findings, files_meta)。cli 為 None 表示認不出。"""
+    # opencode 先判：它的資料在 SQLite，而 .config/opencode 目錄同時存在
+    # （裡面只有幾百 bytes 的設定檔），先比對目錄會誤判成「沒有資料」。
+    db = find_opencode_db(home)
+    if db:
+        f = Findings()
+        try:
+            scan_opencode_db(db, f)
+        except Exception as e:
+            f.notes.append("SQLite 讀取失敗: %s" % e)
+        st = os.stat(db)
+        return "opencode(db)", f, [(st.st_size, st.st_mtime, db)]
+
     cli, tdir = detect_cli(home)
     if not cli:
         return None, None, []
@@ -192,8 +367,14 @@ def report_agent(name, cli, f, files):
     mts = [m for _s, m, _p in files]
     total = sum(s for s, _m, _p in files)
     print(f"      檔數 {f.total_files}（掃了 {f.files}）  總大小 {human(total)}")
-    print(f"      可回溯範圍 : {fmt_ts(min(mts))}  ~  {fmt_ts(max(mts))}")
+    # SQLite 有自己的時間欄位（session.time_created）；檔案 mtime 對 DB 沒意義
+    lo = f.date_min if f.date_min is not None else min(mts)
+    hi = f.date_max if f.date_max is not None else max(mts)
+    src = "session.time_created" if f.date_min is not None else "檔案 mtime"
+    print(f"      可回溯範圍 : {fmt_ts(lo)}  ~  {fmt_ts(hi)}   （依據 {src}）")
     print(f"      紀錄數 {f.records}  不可解析 {f.bad}")
+    for n in f.notes:
+        print(f"      · {n}")
 
     print("      [1] sender_context")
     if f.senders:
@@ -205,8 +386,19 @@ def report_agent(name, cli, f, files):
         print(f"          欄位 : {', '.join(keys)}")
         print(f"          統計必要欄位 : {'全齊' if not missing else '缺 ' + ', '.join(missing)}")
         print(f"          is_bot 分佈 : 真人={human_n} bot={bot_n} 未知={len(f.senders)-human_n-bot_n}")
+        # channel 欄位是平台名（discord.rs/slack.rs 硬寫）或 channel_type
+        # （gateway.rs），**不是頻道名稱**；頻道維度只能用 channel_id。
+        chans = collections.Counter(s.get("channel", "(無)") for s in f.senders)
+        print(f"          channel 欄位值 : {', '.join(f'{k}×{v}' for k, v in chans.most_common(4))}"
+              "   ← 這是平台名/型別，不是頻道名，頻道維度要用 channel_id")
+        nthread = sum(1 for s in f.senders if s.get("thread_id"))
+        print(f"          在 thread 裡 : {nthread}/{len(f.senders)}"
+              "   （thread 中 channel_id=父頻道、thread_id=thread 本身）")
         tag = "有 batching，任務數要數 sender_context 不是數 turn" if f.max_sc_per_record > 1 else "此樣本無 batching 跡象"
         print(f"          單筆紀錄最多 {f.max_sc_per_record} 個  ({tag})")
+        ids = [s.get("message_id") for s in f.senders if s.get("message_id")]
+        print(f"          distinct message_id : {len(set(ids))}/{len(ids)}"
+              "   ← 任務數要數這個（同一任務會重複出現在多個路徑）")
         schemas = collections.Counter(s.get("schema", "(無)") for s in f.senders)
         print(f"          schema : {', '.join(f'{k}×{v}' for k, v in schemas.most_common())}")
     else:
@@ -232,6 +424,9 @@ def report_agent(name, cli, f, files):
             print(f"            {parent}: {items}")
         cache = [k for k in f.token_sums if re.search(r"cache|cached", k, re.I)]
         print(f"          有區分 cache 嗎 : {'有' if cache else '沒有 —— 無法精算成本，只能算用量'}")
+        if f.cost:
+            print(f"          💰 CLI 自己算好的成本合計 : {f.cost:.4f}"
+                  "   ← 有這個就不用自備價目表")
         agg = [k for k in f.token_sums if re.search(r"total", k.rsplit(".", 1)[-1], re.I)]
         if agg:
             print(f"          ⚠ 疑似加總欄位（parser 要排除避免重複計算）: {', '.join(agg)}")
@@ -299,30 +494,32 @@ def main():
             cli, f, files = scan_agent(home)
         except PermissionError as e:
             print(f"  --- {name} --- 權限不足: {e}")
-            summary.append((name, "權限不足", "?", "?", "?", "-"))
+            summary.append((name, "權限不足", "?", "?", "?", "?", "-"))
             continue
         if not cli:
             print(f"  --- {name} --- 認不出 CLI（沒有 .claude/.codex/opencode 目錄）")
-            summary.append((name, "認不出", "-", "-", "-", "-"))
+            summary.append((name, "認不出", "-", "-", "-", "-", "-"))
             continue
         report_agent(name, cli, f, files)
         mts = [m for _s, m, _p in files]
+        lo = f.date_min if f.date_min is not None else (min(mts) if mts else None)
         summary.append((
             name, cli,
             "有" if f.senders else "✗ 無",
             "有" if f.token_sums else "✗ 無",
             "有" if any(re.search(r"cache", k, re.I) for k in f.token_sums) else "無",
-            fmt_ts(min(mts)).split()[0] if mts else "-",
+            "有" if f.cost else "無",
+            fmt_ts(lo).split()[0] if lo else "-",
         ))
 
     report_thread_map(root, homes)
 
     print("\n=== 2. 判定摘要 ===")
-    cols = (12, 13, 11, 7, 6)
-    head = ("AGENT", "CLI", "sender_ctx", "token", "cache")
+    cols = (12, 15, 11, 7, 6, 6)
+    head = ("AGENT", "CLI", "sender_ctx", "token", "cache", "cost")
     print("  " + "".join(pad(h, w) for h, w in zip(head, cols)) + "可回溯起日")
     for row in summary:
-        print("  " + "".join(pad(c, w) for c, w in zip(row[:5], cols)) + str(row[5]))
+        print("  " + "".join(pad(c, w) for c, w in zip(row[:6], cols)) + str(row[6]))
 
     full = [r[0] for r in summary if r[2] == "有" and r[3] == "有"]
     token_only = [r[0] for r in summary if r[2] != "有" and r[3] == "有"]
