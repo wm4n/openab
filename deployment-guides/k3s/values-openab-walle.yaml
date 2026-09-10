@@ -1,0 +1,70 @@
+# openab Wall-E bot（opencode 後端 + OpenRouter，模型 deepseek/deepseek-v4-pro-0813）
+#
+# 跟 Kimi 同一套（見 bot-setup-opencode-kimi.md）——差別只有 agent key、persona、
+# 以及 bootstrap 時寫進全域 opencode.jsonc 的 model 字串。
+#
+# 「加一顆 agent」的 values overlay（只含 agents.walle 區塊），兩種用法擇一：
+#
+# (A) 併進既有 openab-claude release（推薦，照 K3S.md「未來加 agent」流程）：
+#
+#   helm upgrade openab-claude ../../charts/openab -n cac \
+#     -f values-openab-claude.yaml   -f values-secret-claude.yaml \
+#     -f values-openab-walle.yaml    -f values-secret-walle.yaml
+#
+# (B) 獨立 release：
+#
+#   helm install openab-walle oci://ghcr.io/openabdev/charts/openab --version <deployed 版本> -n cac \
+#     -f values-openab-walle.yaml -f values-secret-walle.yaml
+#
+# ⚠️ 用 (B) 或走 OCI 時務必帶 --version（詳見 values-openab-codex.yaml 開頭）。
+# ⚠️ 不要在這裡設 top-level `image:` —— 併進 openab-claude release 時會蓋掉 Rick/Morty 的映像。只用 agents.walle.image。
+# ⚠️ Discord token 由 -f values-secret-walle.yaml 疊加，不要寫在這裡。
+
+agents:
+  # 併進既有 release：這行與 -f values-openab-claude.yaml 疊加，不影響 Rick/Morty。
+  # 獨立 release：chart 內建的 kiro 範例 agent 必須明確關掉，否則會多裝一顆。
+  kiro:
+    enabled: false
+
+  walle:
+    image: ghcr.io/openabdev/openab-opencode:latest   # tag 省略會自動補 appVersion；此處釘 latest
+    command: opencode
+    args: ["acp"]
+    workingDir: /home/node
+
+    discord:
+      enabled: true
+      # ⚠️ channel ID 用字串引號（或 helm --set-string），避免 float64 精度掉位
+      # 沿用 Kimi 的三個頻道
+      allowedChannels: ["1528965074562191420", "1528965173761802420", "1547419153474785372"]
+      allowedUsers: []                # 空 = 頻道內任何人；要鎖就填 user ID
+      allowBotMessages: "mentions"
+      trustedBotIds: []
+      allowedRoleIds: []              # 要團隊 @mention 觸發再填角色 ID（Part M）
+
+    reactions:
+      toolDisplay: "compact"          # 跟 Rick/Morty/Genie/Kimi 一致
+
+    inheritEnv: ["GH_TOKEN"]          # GitHub 用；OpenRouter key 不放這
+
+    # ⚠️ 不設 agentsMd —— context 檔（/home/node/AGENTS.md）由 update-context.sh 寫進 PVC
+    #    （來源 deployment-guides/Walle-AGENTS_v2.md）。設 agentsMd 會掛成唯讀 ConfigMap，
+    #    update-context.sh 的 `cat > AGENTS.md` 會 Read-only file system 而 set -e 中止。
+    # ⚠️ model 不在此 values —— 由 bootstrap 寫進 PVC 的「全域」config
+    #    ~/.config/opencode/opencode.jsonc（opencode ACP 只讀全域，不讀 project opencode.json）。
+    #    Wall-E 的預設 model：openrouter/deepseek/deepseek-v4-pro-0813。見 bot-setup-opencode-kimi.md 附錄 C。
+    # ⚠️ OpenRouter key 與其他 opencode bot 共用同一把 —— bootstrap 時 `opencode auth login`
+    #    貼同一組 sk-or-v1-...；key 存在各自 PVC 的 ~/.local/share/opencode/auth.json，不進 env。
+
+    cron:
+      usercronEnabled: true
+      usercronPath: "cronjob.toml"
+
+    pool:
+      maxSessions: 3
+      sessionTtlHours: 24
+
+    persistence:
+      enabled: true
+      storageClass: cac-local        # 靜態 PV（NFS，見 K3S.md Phase A）。留空會退回叢集 default（k3s 內建 local-path，落根碟）
+      size: 20Gi

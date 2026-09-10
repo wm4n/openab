@@ -1,3 +1,5 @@
 values-secret-claude.yaml
 values-secret-codex.yaml
 values-secret-kimi.yaml
+values-secret-walle.yaml
+values-secret-eve.yaml

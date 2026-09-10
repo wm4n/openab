@@ -9,9 +9,13 @@
 | `values-openab-claude.yaml` | `openab-claude` release：Rick + Morty（RuntimeDefault） |
 | `values-openab-codex.yaml` | `openab-codex` release：Summer（seccomp Unconfined） |
 | `values-openab-kimi.yaml` | Kimi bot overlay（opencode + OpenRouter，模型 `moonshotai/kimi-k3`）：可併進 `openab-claude` release 或獨立 release。做法見 [`../bot-setup-opencode-kimi.md`](../bot-setup-opencode-kimi.md) 附錄 A |
+| `values-openab-walle.yaml` | Wall-E bot overlay（opencode + OpenRouter，模型 `deepseek/deepseek-v4-pro-0813`）。跟 Kimi 同套，見附錄 C |
+| `values-openab-eve.yaml` | Eve bot overlay（opencode + OpenRouter，模型 `z-ai/glm-5.2`）。跟 Kimi 同套，見附錄 C |
 | `values-secret-claude.example.yaml` | 複製成 `values-secret-claude.yaml`（gitignored）填 Rick/Morty 的 Discord token |
 | `values-secret-codex.example.yaml` | 複製成 `values-secret-codex.yaml`（gitignored）填 Summer 的 Discord token |
 | `values-secret-kimi.example.yaml` | 複製成 `values-secret-kimi.yaml`（gitignored）填 Kimi bot 的 Discord token |
+| `values-secret-walle.example.yaml` | 複製成 `values-secret-walle.yaml`（gitignored）填 Wall-E 的 Discord token |
+| `values-secret-eve.example.yaml` | 複製成 `values-secret-eve.yaml`（gitignored）填 Eve 的 Discord token |
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
 
 ## 快速驗證（在有 helm 的機器）
@@ -63,3 +67,20 @@ helm upgrade openab-claude ../../charts/openab -n cac \
 ```
 
 之後還要：靜態 PV `pv-cac-kimi`（claimRef `openab-claude-kimi`）、`opencode auth login` 貼 OpenRouter key、寫全域 `~/.config/opencode/opencode.jsonc` 設模型（ACP 只讀全域，不讀 project `opencode.json`）。完整 bootstrap 見 [`../bot-setup-opencode-kimi.md`](../bot-setup-opencode-kimi.md) 附錄 A。
+
+### Wall-E / Eve bot（同 Kimi 一套）
+
+一樣 opencode + OpenRouter，只差 agent key、persona 檔、與全域 `opencode.jsonc` 的 model 字串（Wall-E＝`openrouter/deepseek/deepseek-v4-pro-0813`、Eve＝`openrouter/z-ai/glm-5.2`）。OpenRouter key 與 Kimi **共用同一把**。
+
+```bash
+cp values-secret-walle.example.yaml values-secret-walle.yaml   # 填 Discord token
+cp values-secret-eve.example.yaml   values-secret-eve.yaml
+
+helm upgrade openab-claude ../../charts/openab -n cac \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml \
+  -f values-openab-kimi.yaml   -f values-secret-kimi.yaml \
+  -f values-openab-walle.yaml  -f values-secret-walle.yaml \
+  -f values-openab-eve.yaml    -f values-secret-eve.yaml
+```
+
+靜態 PV：`pv-cac-walle`（claimRef `openab-claude-walle`）、`pv-cac-eve`（claimRef `openab-claude-eve`）。bootstrap 見 [`../bot-setup-opencode-kimi.md`](../bot-setup-opencode-kimi.md) 附錄 C。

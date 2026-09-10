@@ -349,3 +349,107 @@ kubectl -n cac exec deploy/openab-claude-kimi -- opencode models | grep -i kimi
 | model 設定 | `docker exec` 寫 `~/.config/opencode/opencode.jsonc` | `kubectl exec` 寫 `~/.config/opencode/opencode.jsonc`(PVC) —— ACP 只讀全域這份,不讀 project `opencode.json` |
 | `AGENTS.md` | `docker exec` 寫檔(正文步驟 8) | `update-context.sh`(來源 `Kimi-AGENTS_v2.md`,寫進 PVC);**不設 `agentsMd`** |
 | skill | 暫不接 | 暫不接(opencode 走 `~/.claude/skills/` 目錄,非 `claude plugin`) |
+
+---
+
+## 附錄 C — 其他 opencode bot(Wall-E / Eve)
+
+跟 Kimi **完全同一套**(opencode + OpenRouter,併進 `openab-claude` release)。差別只有下表這幾格,
+其餘照附錄 A 逐步做即可。
+
+| 項目 | Kimi | **Wall-E** | **Eve** |
+|---|---|---|---|
+| agent key | `kimi` | `walle` | `eve` |
+| deployment / pod | `openab-claude-kimi` | `openab-claude-walle` | `openab-claude-eve` |
+| values overlay | `values-openab-kimi.yaml` | `values-openab-walle.yaml` | `values-openab-eve.yaml` |
+| secret 範本 | `values-secret-kimi.example.yaml` | `values-secret-walle.example.yaml` | `values-secret-eve.example.yaml` |
+| persona 源檔 | `Kimi-AGENTS_v2.md` | `Walle-AGENTS_v2.md` | `Eve-AGENTS_v2.md` |
+| 靜態 PV / claimRef | `pv-cac-kimi` / `openab-claude-kimi` | `pv-cac-walle` / `openab-claude-walle` | `pv-cac-eve` / `openab-claude-eve` |
+| 全域 `opencode.jsonc` 的 `model` | `openrouter/moonshotai/kimi-k3` | `openrouter/deepseek/deepseek-v4-pro-0813` | `openrouter/z-ai/glm-5.2` |
+| Discord Application / token | 各自新建 | 各自新建 | 各自新建 |
+| Discord 頻道 | 沿用同 3 個 channel ID | 同左 | 同左 |
+| GitHub 帳號 | 單帳號 | 單帳號 `104cac`(PAT 登入) | 單帳號 `104cac`(PAT 登入) |
+| OpenRouter key | — | **與 Kimi 共用同一把**(bootstrap `opencode auth login` 貼同一組) | 同左 |
+| `update-context.sh` BOTS | 已含 | 已含(`Wall-E:openab-claude-walle:Walle-AGENTS_v2.md:AGENTS.md`) | 已含(`Eve:openab-claude-eve:Eve-AGENTS_v2.md:AGENTS.md`) |
+
+### 一次上兩隻
+
+```bash
+cd deployment-guides/k3s
+cp values-secret-walle.example.yaml values-secret-walle.yaml   # 填各自的 Discord token
+cp values-secret-eve.example.yaml   values-secret-eve.yaml
+
+# 靜態 PV（各一顆，claimRef 精準指定；容量對齊 values 的 persistence.size = 20Gi）
+for n in walle eve; do
+  mkdir -p /data/william/openab/agent-$n
+  kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-cac-$n
+spec:
+  capacity: { storage: 20Gi }
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: cac-local
+  local: { path: /data/william/openab/agent-$n }
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - { key: kubernetes.io/hostname, operator: In, values: ["openab"] }
+  claimRef: { namespace: cac, name: openab-claude-$n }
+EOF
+done
+
+helm upgrade openab-claude ../../charts/openab -n cac \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml \
+  -f values-openab-kimi.yaml   -f values-secret-kimi.yaml \
+  -f values-openab-walle.yaml  -f values-secret-walle.yaml \
+  -f values-openab-eve.yaml    -f values-secret-eve.yaml
+```
+
+### 每隻各跑一次 bootstrap（比照附錄 A5，換 POD / model）
+
+```bash
+for n in walle eve; do
+  POD=$(kubectl -n cac get pod -l app.kubernetes.io/instance=openab-claude -o name | grep "$n")
+  case "$n" in
+    walle) MODEL=openrouter/deepseek/deepseek-v4-pro-0813 ;;
+    eve)   MODEL=openrouter/z-ai/glm-5.2 ;;
+  esac
+
+  kubectl -n cac exec "$POD" -- mkdir -p /home/node/.local/share/opencode /home/node/.config/opencode
+  kubectl -n cac exec -it "$POD" -- opencode auth login          # 選 OpenRouter，貼「與 Kimi 同一把」sk-or-v1-...
+  kubectl -n cac exec -i "$POD" -- sh -c "cat > /home/node/.config/opencode/opencode.jsonc" <<EOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "model": "$MODEL"
+}
+EOF
+  kubectl -n cac exec "$POD" -- rm -f /home/node/opencode.json   # 清掉會蓋過全域的 project config
+  kubectl -n cac exec -it "$POD" -- gh auth login --hostname github.com   # 104cac PAT
+  kubectl -n cac exec "$POD" -- gh auth setup-git
+done
+
+bash update-context.sh   # 會把 Walle-/Eve-AGENTS_v2.md 寫進各自 pod 的 /home/node/AGENTS.md
+kubectl -n cac rollout restart deploy/openab-claude-walle deploy/openab-claude-eve -n cac
+```
+
+### 驗證
+
+```bash
+for n in walle eve; do
+  echo "--- $n ---"
+  kubectl -n cac get pod -l app.kubernetes.io/instance=openab-claude | grep "$n"
+  kubectl -n cac exec "deploy/openab-claude-$n" -- sh -lc 'cd /home/node && opencode run "你用哪個 model？一句話"'
+done
+```
+
+Wall-E 頻道 @它 → 應 `> build · deepseek/deepseek-v4-pro-0813`；Eve → `> build · z-ai/glm-5.2`。都回中文即完成。
+
+### 注意
+
+- `deepseek-v4-pro-0813` 與 `glm-5.2` 都是 **reasoning 模型** → 一樣要 opencode ≥ 1.17.3（image 已達標，別降版）。
+- `glm-5.2` 的 `parallel_tool_calls` 支援;`deepseek-v4-pro-0813` 不支援（實測 opencode 照跑，工具呼叫異常時往這查）。
+- 三隻共用一把 OpenRouter key → OpenRouter 後台看不出是哪隻花的，只能看 model 分佈。要分開記帳就得各給一把 key。
