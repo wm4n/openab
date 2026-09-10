@@ -1,25 +1,26 @@
 # openab Kimi Bot 部署(opencode + OpenRouter,與其他 bot 並存)
 
 > 在 Mac mini(`CAC@2771`,OrbStack)上再跑一顆 **專用 Kimi** bot:後端用 **opencode**,
-> 模型走 **OpenRouter** 的 `moonshotai/kimi-k2.7-code`(Kimi 的 coding 版)。
+> 模型走 **OpenRouter** 的 `moonshotai/kimi-k3`(2.8T 參數,1M context,reasoning + agentic)。
 > 與現有 Claude / Codex bot 並存 —— 新的 Discord Application + 新 token + 獨立容器/config/volume。
 > 共用觀念 / 安全須知 / 維運見 [`BOT_SETUP.md`](./BOT_SETUP.md);這裡只列可直接照做的步驟 1–9。
 >
 > ⚠️ 只放 placeholder,**絕不寫入真實 token / API key**。秘密一律放 `~/.openab-kimi-secrets.env`(chmod 600)。
+> ⚠️ `kimi-k3` 是 $3 / $15 每 1M tokens(約 k2.7-code 的 4 倍),OpenRouter 後台記得設 credit limit。
 
 **為什麼是 opencode**:openab 自己不呼叫 LLM,是把對話透過 ACP 丟給 agent CLI。
 opencode 原生支援 [75+ provider](https://opencode.ai/docs/providers/)(含 OpenRouter),
-「換模型」只要 `opencode auth login` + 一個 `opencode.json`,不用改 openab 或寫 code。
+「換模型」只要 `opencode auth login` + 改一行全域 `opencode.jsonc`,不用改 openab 或寫 code。
 
 | 項目 | Claude bot | 本 Kimi bot |
 |---|---|---|
 | 映像 | `openab-claude:latest` | `openab-opencode:latest` |
 | `[agent].command` | `claude-agent-acp` | `opencode`(args `["acp"]`) |
 | LLM 來源 | Anthropic 訂閱 | **OpenRouter API key** |
-| 預設模型 | `claude-*` | `openrouter/moonshotai/kimi-k2.7-code` |
+| 預設模型 | `claude-*` | `openrouter/moonshotai/kimi-k3` |
 | 登入 | `claude auth login`(OAuth) | `opencode auth login`(貼 OpenRouter key) |
 | 憑證位置 | `/home/node/.claude` | `/home/node/.local/share/opencode/auth.json` |
-| 模型設定檔 | —(靠 CLI) | `/home/node/opencode.json` |
+| 模型設定檔 | —(靠 CLI) | `~/.config/opencode/opencode.jsonc`(全域;ACP 只讀這份) |
 | 脈絡檔 | `CLAUDE.md` | `AGENTS.md` |
 | 工具授權 | 逐項確認 | 全自動(等同 `--trust-all-tools`,opencode 內部處理) |
 
@@ -123,15 +124,18 @@ docker -c orbstack exec -u node openab-kimi cat /home/node/.local/share/opencode
 # 應看到含 "openrouter" 的 JSON
 ```
 
-## 步驟 7 — 設定預設模型(`opencode.json`)
+## 步驟 7 — 設定預設模型(全域 `opencode.jsonc`)
 
-寫進 working_dir(`/home/node`),在 volume 上,重啟不掉:
+⚠️ opencode 的 `acp` server 模式**只讀全域 config `~/.config/opencode/opencode.jsonc`**,
+**不讀** working_dir 的 `opencode.json`(project config)。model 一定要寫全域這份 ——
+否則 bot 會落回 opencode 內建 fallback(k3s 上實測會變成 `google/gemini-3-pro-image-preview`,
+不支援 tool use,bot 完全不回話)。`~/.config/opencode/` 在 volume 上,重啟不掉。
 
 ```bash
-docker -c orbstack exec -i -u node openab-kimi sh -c 'cat > /home/node/opencode.json' <<'EOF'
+docker -c orbstack exec -i -u node openab-kimi sh -c 'mkdir -p /home/node/.config/opencode && cat > /home/node/.config/opencode/opencode.jsonc' <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "openrouter/moonshotai/kimi-k2.7-code"
+  "model": "openrouter/moonshotai/kimi-k3"
 }
 EOF
 
@@ -146,15 +150,15 @@ docker -c orbstack exec -u node openab-kimi opencode models | grep -i kimi
 
 ### 可選模型(OpenRouter,單價為每 1M tokens,2026-09 查詢)
 
-| `opencode.json` 的 `model` | in | out | 備註 |
+| `opencode.jsonc` 的 `model` | in | out | 備註 |
 |---|---|---|---|
-| `openrouter/moonshotai/kimi-k2.7-code` | $0.71 | $3.50 | **本 bot 預設,coding 取向** |
-| `openrouter/moonshotai/kimi-k2.5` | $0.45 | $2.25 | CP 值高,reasoning 型 |
+| `openrouter/moonshotai/kimi-k3` | $3.00 | $15.00 | **本 bot 預設**;2.8T 參數,1M context,reasoning + agentic;最貴 |
+| `openrouter/moonshotai/kimi-k2.7-code` | $0.71 | $3.50 | coding 取向,reasoning;CP 值比 k3 高很多 |
+| `openrouter/moonshotai/kimi-k2.5` | $0.45 | $2.25 | reasoning 型 |
+| `openrouter/moonshotai/kimi-k2-0905` | $0.60 | $2.50 | **非 reasoning、tool 強**,最穩,想避開 ACP reasoning 雷選這個 |
 | `openrouter/moonshotai/kimi-k2` | $0.57 | $2.30 | 最便宜,非 reasoning |
-| `openrouter/moonshotai/kimi-k2-thinking` | $0.60 | $2.50 | 推理型 |
-| `openrouter/moonshotai/kimi-k3` | $3.00 | $15.00 | 最新最貴,1M context |
 
-> 換模型只要改 `opencode.json` 再 `docker -c orbstack restart openab-kimi`。
+> 換模型只要改 `~/.config/opencode/opencode.jsonc` 再 `docker -c orbstack restart openab-kimi`。
 
 ## 步驟 8 —(選)工作脈絡檔:opencode 用 `AGENTS.md`
 
@@ -192,9 +196,14 @@ docker -c orbstack exec -i -u node openab-kimi sh -c '
 
 ## 提醒
 
-- **映像版本地板**:`Dockerfile.opencode` 目前 pin `opencode-ai@1.17.9`。OpenRouter 的 **reasoning 模型**
-  (`kimi-k2.5`、`kimi-k2-thinking`)在 opencode `< 1.17.3` 有 ACP 回傳 bug,bot 會顯示 `(no response)`。
-  預設的 `kimi-k2.7-code` 不吃這個雷,但如果之後把映像降版或換模型要留意。
+- **映像版本地板(Critical)**:`kimi-k3` 是 **reasoning 模型**。OpenRouter reasoning 模型在 opencode
+  `< 1.17.3` 有 ACP 回傳 bug(內部存好 assistant text 卻不發 `agent_message_chunk`),bot 顯示
+  `(no response)`。`Dockerfile.opencode` 目前 pin `opencode-ai@1.17.9`,k3s 上實測 pod 是 `1.17.3`
+  (達標)。**別把映像降到 1.17.3 以下**。想完全避開這個雷就用非 reasoning 的 `kimi-k2-0905`。
+- **`parallel_tool_calls`**:`kimi-k3` 是 `false`(`kimi-k2.7-code` 是 `true`)。目前實測 opencode 照跑
+  沒事,工具呼叫異常時可往這邊查。
+- **成本**:`kimi-k3` $3 / $15 每 1M tokens,約 `kimi-k2.7-code`($0.71 / $3.50)的 4 倍。務必在
+  OpenRouter 後台設 credit limit。
 - **拿不到 usage meter**:ACP 路共通限制,Discord 不會顯示額度 / 花費。用量請去 OpenRouter 後台看。
 - **工具全自動**:opencode 內部處理工具授權,等同 `--trust-all-tools`,不會有逐步確認。
   要靠容器隔離當邊界(非 privileged container)。
@@ -280,11 +289,14 @@ kubectl -n cac exec -it "$POD" -- mkdir -p /home/node/.local/share/opencode
 kubectl -n cac exec -it "$POD" -- opencode auth login
 kubectl -n cac exec "$POD" -- opencode auth list
 
-# 3) 預設模型寫進 PVC 的 opencode.json
-kubectl -n cac exec -i "$POD" -- sh -c 'cat > /home/node/opencode.json' <<'EOF'
+# 3) 預設模型寫進「全域」config —— opencode 的 ACP server 只讀這份，
+#    不讀 /home/node/opencode.json（project config）。寫錯地方 bot 會落回
+#    內建 fallback（實測變成 google/gemini-3-pro-image-preview，不回話）。
+kubectl -n cac exec "$POD" -- mkdir -p /home/node/.config/opencode
+kubectl -n cac exec -i "$POD" -- sh -c 'cat > /home/node/.config/opencode/opencode.jsonc' <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "openrouter/moonshotai/kimi-k2.7-code"
+  "model": "openrouter/moonshotai/kimi-k3"
 }
 EOF
 
@@ -326,6 +338,6 @@ kubectl -n cac exec deploy/openab-claude-kimi -- opencode models | grep -i kimi
 | 持久化 | docker volume `openab-kimi-home` | 靜態 PV `pv-cac-kimi` + PVC `openab-claude-kimi` |
 | config.toml | `~/oab-kimi/config.toml` 手寫 | chart 由 `values-openab-kimi.yaml` 生成 |
 | OpenRouter key | `opencode auth login`(volume) | 同左(PVC);或 `secretEnv` 注入 `OPENROUTER_API_KEY`(宣告式,但 key 進 agent env) |
-| `opencode.json` | `docker exec` 寫檔 | `kubectl exec` 寫進 PVC |
+| model 設定 | `docker exec` 寫 `~/.config/opencode/opencode.jsonc` | `kubectl exec` 寫 `~/.config/opencode/opencode.jsonc`(PVC) —— ACP 只讀全域這份,不讀 project `opencode.json` |
 | `AGENTS.md` | `docker exec` 寫檔(正文步驟 8) | `update-context.sh`(來源 `Kimi-AGENTS_v2.md`,寫進 PVC);**不設 `agentsMd`** |
 | skill | 暫不接 | 暫不接(opencode 走 `~/.claude/skills/` 目錄,非 `claude plugin`) |

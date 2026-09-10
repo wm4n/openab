@@ -1,4 +1,4 @@
-# openab Kimi bot（opencode 後端 + OpenRouter，模型 moonshotai/kimi-k2.7-code）
+# openab Kimi bot（opencode 後端 + OpenRouter，模型 moonshotai/kimi-k3）
 #
 # 這是一份「加一顆 agent」的 values overlay（只含 agents.kimi 區塊），兩種用法擇一：
 #
@@ -67,7 +67,10 @@ agents:
     # ⚠️ 不設 agentsMd —— context 檔（/home/node/AGENTS.md）跟 Rick/Morty/Summer/Genie
     #    一樣由 update-context.sh 寫進 PVC（來源 deployment-guides/Kimi-AGENTS_v2.md）。
     #    設了 agentsMd 會掛成唯讀 ConfigMap，update-context.sh 的 `cat > AGENTS.md`
-    #    會 Read-only file system 而 set -e 中止。opencode.json 同理由 bootstrap 寫 PVC。
+    #    會 Read-only file system 而 set -e 中止。
+    # ⚠️ model 不在此 values —— 由 bootstrap 寫進 PVC 的「全域」config
+    #    ~/.config/opencode/opencode.jsonc（opencode ACP 只讀全域，不讀 project
+    #    opencode.json）。目前預設 openrouter/moonshotai/kimi-k3。見附錄 A5。
 
     cron:
       usercronEnabled: true
