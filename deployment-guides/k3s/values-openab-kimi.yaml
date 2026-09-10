@@ -42,6 +42,9 @@ agents:
       trustedBotIds: []
       allowedRoleIds: []              # 要團隊 @mention 觸發再填角色 ID（Part M）
 
+    reactions:
+      toolDisplay: "compact"          # 跟 Rick/Morty/Genie 一致；full=每個 tool 一行，none=全隱藏
+
     # --- OpenRouter API key：兩種給法擇一 ---
     #
     # 方式 1（預設，較安全）：不在 values 設，改用 bootstrap `opencode auth login`
