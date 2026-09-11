@@ -242,3 +242,130 @@ def session_attribution(tasks, usages):
                  + sum(entry["unattributed"].values()))
         entry["coverage"] = (attributed / total) if total else 0.0
     return out
+
+
+# --- 摩擦指標、失敗率代理、覆蓋率 ------------------------------------------
+
+def _median(values):
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[mid])
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def friction_signals(tasks):
+    """{bot: {兩個弱訊號}}。**這不是滿意度量測。**
+
+    兩個訊號都弱：追問密度可能只是任務本身複雜、放棄 session 也可能是使用者
+    換 thread 繼續。報表必須用「摩擦」而非「滿意」命名，並明寫這一點。真正的
+    滿意度要等明確評分機制，屆時才能用它來校準這些弱訊號。
+
+    第一版刻意不做否定詞偵測 —— 那需要把使用者訊息內容擷取進事件檔（隱私
+    成本），而它又是最弱的訊號。這裡的兩個訊號只用時間戳與 session ID。
+    """
+    per_bot = {}
+    for task in dedupe_tasks(tasks):
+        # 摩擦是人的感受：排程與 bot 互呼不算。
+        if task.get("source") != "human":
+            continue
+        per_bot.setdefault(task.get("bot"), []).append(task)
+
+    out = {}
+    for bot, rows in per_bot.items():
+        gaps = []
+        by_session = {}
+        for task in rows:
+            by_session.setdefault(
+                (task.get("session_id"), task.get("sender_id")), []).append(task)
+
+        for group in by_session.values():
+            stamps = sorted(t.get("occurred_at") or "" for t in group)
+            for earlier, later in zip(stamps, stamps[1:]):
+                delta = _seconds_between(earlier, later)
+                if delta is not None:
+                    gaps.append(delta)
+
+        sessions = {t.get("session_id") for t in rows if t.get("session_id")}
+        counts = {}
+        for task in rows:
+            session_id = task.get("session_id")
+            if session_id:
+                counts[session_id] = counts.get(session_id, 0) + 1
+
+        out[bot] = {
+            "followup_median_seconds": _median(gaps),
+            "tasks_per_session": (len(rows) / float(len(sessions)))
+                                 if sessions else None,
+            # 只被問過一次就沒下文的 session。可能是任務一次就解決，
+            # 也可能是使用者放棄 —— 這正是它可信度低的原因。
+            "abandoned_sessions": sum(1 for n in counts.values() if n == 1),
+        }
+    return out
+
+
+def _seconds_between(earlier, later):
+    from events import _parse_iso
+    try:
+        return (_parse_iso(later) - _parse_iso(earlier)).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
+def failure_proxy(thread_map_counts, tasks):
+    """開過 session 但沒產出的比例 —— 揪紅旗用，不是失敗率量測。
+
+    thread_map.json 的 entry 在 session/new 成功後、送 prompt 之前就寫入
+    （pool.rs:347-357），所以落差代表「開了 session 沒產出」。無法區分
+    「失敗」與「使用者只是 @ 了一下沒下任務」，也只有 session 粒度。
+    """
+    with_output = {}
+    for task in dedupe_tasks(tasks):
+        session_id = task.get("session_id")
+        if session_id:
+            with_output.setdefault(task.get("bot"), set()).add(session_id)
+
+    out = {}
+    for bot in set(list(thread_map_counts) + list(with_output)):
+        created = thread_map_counts.get(bot)
+        produced = len(with_output.get(bot, ()))
+        if created is None:
+            # 沒有 thread_map 就是「不知道」，不可填 0 —— 那會被讀成沒落差。
+            out[bot] = {"sessions_created": None,
+                        "sessions_with_output": produced, "gap": None}
+        else:
+            out[bot] = {"sessions_created": created,
+                        "sessions_with_output": produced,
+                        "gap": max(0, created - produced)}
+    return out
+
+
+def data_coverage(days, collect_health):
+    """報表的資料覆蓋率。缺口不可偽裝成「那天沒人用」。"""
+    present = sorted(d for d in days if d and d != _UNKNOWN_DAY)
+    missing = []
+    expected = len(present)
+    if len(present) >= 2:
+        import datetime as dt
+        start = dt.date.fromisoformat(present[0])
+        end = dt.date.fromisoformat(present[-1])
+        expected = (end - start).days + 1
+        have = set(present)
+        for offset in range(expected):
+            day = (start + dt.timedelta(days=offset)).isoformat()
+            if day not in have:
+                missing.append(day)
+
+    unparsable = 0
+    for stats in (collect_health.get("bots") or {}).values():
+        unparsable += stats.get("unparsable", 0)
+
+    return {
+        "days_expected": expected,
+        "days_present": len(present),
+        "missing_days": missing,
+        "unparsable": unparsable,
+        "unrecognised": list(collect_health.get("unrecognised") or []),
+    }
