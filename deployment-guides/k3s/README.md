@@ -19,6 +19,7 @@
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
 | `verify-stats-sources.py` | 唯讀診斷：掃各 agent PVC 上的 transcript／SQLite，確認統計要用的欄位在不在（見下方「統計資料源診斷」） |
 | `verify-archive-superset.py` | 唯讀診斷：用內容雜湊確認新的累積鏡像是否完整包含早期的日期快照，決定舊快照能不能刪（見 [`../K3S.md`](../K3S.md)「transcript 保留期限」） |
+| `usage-stats/` | bot 使用統計：CronJob 收集 + 手動產報表。見 [`usage-stats/README.md`](usage-stats/README.md) |
 
 ## 快速驗證（在有 helm 的機器）
 

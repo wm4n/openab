@@ -550,6 +550,82 @@ done
 
 ---
 
+## 使用統計 CronJob
+
+`deployment-guides/k3s/usage-stats/` 的收集器（`collect.py`）定期把七隻 bot 的
+transcript／SQLite 轉成正規化事件，累積在獨立 PVC 裡；報表（`report.py`）隨時
+手動跑，不碰原始儲存。完整設計見
+`deployment-guides/k3s/usage-stats/README.md`。
+
+### 1. 靜態 PV（輸出用，`cac-local` 一樣要手動建 PV）
+
+```bash
+mkdir -p /data/william/openab-usage-stats
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-cac-usage-stats
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: cac-local
+  local:
+    path: /data/william/openab-usage-stats
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: ["openab"]
+  claimRef:
+    namespace: cac
+    name: usage-stats-data
+EOF
+```
+
+### 2. ConfigMap（腳本掛載，改了要重建）
+
+```bash
+cd deployment-guides/k3s/usage-stats
+kubectl create configmap usage-stats-scripts -n cac \
+  --from-file=events.py --from-file=sender_context.py \
+  --from-file=parse_claude_code.py --from-file=parse_codex.py \
+  --from-file=parse_opencode.py --from-file=collect.py
+```
+
+### 3. apply CronJob
+
+```bash
+kubectl apply -f deployment-guides/k3s/usage-stats/cronjob.yaml
+```
+
+### 4. 手動觸發一次驗證
+
+```bash
+kubectl create job --from=cronjob/usage-stats-collect usage-stats-manual -n cac
+kubectl logs -f job/usage-stats-manual -n cac
+```
+
+### 5. 端對端驗收（人工對照，不可省）
+
+```bash
+# 產一天的報表（<PVC 掛載點> 即 pv-cac-usage-stats 的 hostPath）
+python3 deployment-guides/k3s/usage-stats/report.py \
+  --data /data/william/openab-usage-stats --since <昨天> --until <昨天>
+```
+
+**人工對照 Discord 頻道當天的實際訊息數，確認「真人任務數」對得上。** 這步不能
+省——統計系統最常見的失敗模式是「跑得很順、數字全錯」，而且錯了沒人發現。
+
+另外用 `verify-stats-sources.py` 的 token 加總當上界檢查：報表算出的 token 總量
+**絕不該超過**探查工具看到的權威路徑總和。
+
+---
+
 ## 疑難排解
 
 | 症狀 | 原因 | 解法 |

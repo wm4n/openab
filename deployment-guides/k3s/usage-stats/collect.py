@@ -40,6 +40,26 @@ def detect_cli(home):
     return None
 
 
+def count_thread_map(home):
+    """thread_map.json 的 entry 數 —— 失敗率代理的分母。
+
+    這個計數必須在收集階段記下來：報表階段只讀事件檔、碰不到 agent 的
+    HOME。讀不到時回 None 而不是 0 —— 「不知道」與「沒有落差」必須可區分。
+    """
+    path = os.path.join(home, ".openab", "thread_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    inner = raw if isinstance(raw, dict) else {}
+    for wrapper in ("persisted", "threads", "mapping"):
+        if isinstance(inner.get(wrapper), dict):
+            inner = inner[wrapper]
+            break
+    return len(inner)
+
+
 def _bucket(event):
     """事件按台北日界線分桶。沒有時間戳的進 unknown —— 不可丟掉。"""
     ts = event.get("occurred_at")
@@ -94,6 +114,7 @@ def main(argv=None):
         marks = {}
 
     health = {"bots": {}, "unrecognised": [], "errors": {}}
+    tm_counts = {}
     for entry in sorted(os.listdir(args.root)):
         if not entry.startswith("agent-"):
             continue
@@ -113,6 +134,9 @@ def main(argv=None):
             print("錯誤：%s 收集失敗 —— %s" % (bot, exc), file=sys.stderr)
             continue
         marks[bot] = result.watermark
+        count = count_thread_map(home)
+        if count is not None:
+            tm_counts[bot] = count
         health["bots"][bot] = {
             "tasks": len(result.tasks), "usages": len(result.usages),
             "records": result.health["records"],
@@ -129,6 +153,9 @@ def main(argv=None):
     with open(os.path.join(args.out, "collect-health.json"), "w",
               encoding="utf-8") as fh:
         json.dump(health, fh, ensure_ascii=False, indent=2, sort_keys=True)
+    with open(os.path.join(args.out, "thread-map-counts.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(tm_counts, fh, ensure_ascii=False, indent=2, sort_keys=True)
     return 0
 
 

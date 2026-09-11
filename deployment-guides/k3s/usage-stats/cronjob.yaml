@@ -1,0 +1,82 @@
+# openab 使用統計收集器。**只收集不產報表** —— 報表由使用者手動跑 report.py。
+#
+# 分開的理由是原始資料會被 CLI 清掉（claude-code 有 cleanupPeriodDays，預設
+# 30 天），錯過即永久遺失，所以收集必須定期跑；報表隨時可以重跑。
+#
+# 部署前置：
+#   1. 建 PVC 用的靜態 PV（見 K3S.md「使用統計 CronJob」一節）
+#   2. kubectl create configmap usage-stats-scripts -n cac \
+#        --from-file=events.py --from-file=sender_context.py \
+#        --from-file=parse_claude_code.py --from-file=parse_codex.py \
+#        --from-file=parse_opencode.py --from-file=collect.py
+#      （腳本改了要重建 configmap；只用標準庫所以不需要裝任何東西）
+#   3. kubectl apply -f cronjob.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: usage-stats-data
+  namespace: cac
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: cac-local
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: usage-stats-collect
+  namespace: cac
+spec:
+  # 台北清晨跑。收集是增量的（水位持久化），一天一次就夠。
+  schedule: "20 3 * * *"
+  timeZone: "Asia/Taipei"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          # PV 是 local 型、nodeAffinity 全部釘在這個節點，所以收集器也必須
+          # 排在同一節點才看得到 /data/william/openab。
+          nodeSelector:
+            kubernetes.io/hostname: openab
+          securityContext:
+            runAsUser: 0 # /data/william/... 是 root-only
+          containers:
+            - name: collect
+              # 公開 image：收集器只讀檔，不需要 openab 的任何工具，也不需要
+              # imagePullSecrets。三個腳本只用標準庫。若叢集拉不到公開 image，
+              # 改用 ghcr.io/104corp/openab 並先確認裡面有 python3。
+              image: "python:3.12-slim"
+              command:
+                - python3
+                - /scripts/collect.py
+                - --root
+                - /agents
+                - --out
+                - /out
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: agents
+                  mountPath: /agents
+                  readOnly: true # 唯讀：絕不寫入 agent 的 HOME
+                - name: out
+                  mountPath: /out
+          volumes:
+            - name: scripts
+              configMap:
+                name: usage-stats-scripts
+                defaultMode: 0755
+            - name: agents
+              hostPath:
+                path: /data/william/openab
+                type: Directory
+            - name: out
+              persistentVolumeClaim:
+                claimName: usage-stats-data
