@@ -292,6 +292,14 @@ def render(report):
           if report["allowlist_bounds"].get(bot) else "—"]
          for bot, users in sorted(report["active_users"].items())]))
 
+    parts.append("<h2>各頻道使用量</h2>")
+    parts.append(_table(
+        ["頻道", "真人", "bot 互呼", "cron 排程"],
+        [[report_mod.channel_label(cid, report["channel_names"]),
+          c["human"], c["bot_relay"], c["cron"]]
+         for cid, c in sorted((report.get("by_channel") or {}).items(),
+                              key=lambda kv: -sum(kv[1].values()))]))
+
     parts.append("<h2>摩擦指標（不是滿意度）</h2>")
     parts.append(_table(
         ["bot", "追問間隔中位數（秒）", "每 session 任務數", "只問一次就沒下文"],

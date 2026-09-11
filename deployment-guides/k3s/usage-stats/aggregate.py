@@ -369,3 +369,20 @@ def data_coverage(days, collect_health):
         "unparsable": unparsable,
         "unrecognised": list(collect_health.get("unrecognised") or []),
     }
+
+
+def tasks_by_channel(tasks):
+    """{channel_id: {human, bot_relay, cron}}。
+
+    注意 channel_id 在 thread 裡是**父頻道**（discord.rs:2140），所以這是
+    父頻道層級的使用分布 —— thread 是任務的容器，不是團隊的邊界，這正是
+    「哪個團隊在用」要的粒度。
+    """
+    out = {}
+    for task in dedupe_tasks(tasks):
+        channel_id = task.get("channel_id") or "unknown"
+        bucket = out.setdefault(channel_id, dict.fromkeys(SOURCES, 0))
+        source = task.get("source")
+        if source in bucket:
+            bucket[source] += 1
+    return out

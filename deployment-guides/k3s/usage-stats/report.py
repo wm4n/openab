@@ -23,6 +23,13 @@ DEFAULT_CONFIG = {"channel_names": {}, "allowlist_bounds": {}, "pricebook": {}}
 _TZ_NAME = "Asia/Taipei"
 
 
+def channel_label(channel_id, channel_names):
+    """頻道的顯示名稱。查不到就用原始 ID —— 絕不留空白。"""
+    if channel_id == "unknown":
+        return "（無頻道資訊）"
+    return (channel_names or {}).get(channel_id, channel_id)
+
+
 def load_config(path):
     """讀 JSON 設定並疊在預設值上。壞掉的設定檔要拋錯不可靜默用預設值。"""
     config = dict(DEFAULT_CONFIG)
@@ -88,6 +95,7 @@ def build_report(tasks, usages, config, since, until, collect_health,
         "attribution": aggregate.session_attribution(tasks, usages),
         "friction": aggregate.friction_signals(tasks),
         "failure_proxy": aggregate.failure_proxy(thread_map_counts or {}, tasks),
+        "by_channel": aggregate.tasks_by_channel(tasks),
         "allowlist_bounds": dict(config.get("allowlist_bounds") or {}),
         "channel_names": dict(config.get("channel_names") or {}),
     }
@@ -193,6 +201,13 @@ def render_text(report):
                       info["sessions_with_output"],
                       info["gap"] if info["gap"] is not None else "未知"))
 
+    out.append("\n[各頻道使用量]  真人 / bot 互呼 / cron 排程")
+    for channel_id, counts in sorted(
+            report["by_channel"].items(), key=lambda kv: -sum(kv[1].values())):
+        out.append("  %-24s  %4d / %4d / %4d"
+                   % (channel_label(channel_id, report["channel_names"]),
+                      counts["human"], counts["bot_relay"], counts["cron"]))
+
     out.append("\n[讀這份報表前必須知道]")
     for line in _caveat_lines(report):
         out.append("  - " + line.replace("**", ""))
@@ -264,6 +279,17 @@ def render_md(report):
         bound = report["allowlist_bounds"].get(bot)
         note = ("受 allowlist 限制，上界 %d 人" % bound) if bound else "—"
         out.append("| %s | %d | %s |" % (bot, len(users), note))
+
+    out.append("")
+    out.append("## 各頻道使用量")
+    out.append("")
+    out.append("| 頻道 | 真人 | bot 互呼 | cron 排程 |")
+    out.append("| --- | --- | --- | --- |")
+    for channel_id, c in sorted(report["by_channel"].items(),
+                                key=lambda kv: -sum(kv[1].values())):
+        out.append("| %s | %d | %d | %d |"
+                   % (channel_label(channel_id, report["channel_names"]),
+                      c["human"], c["bot_relay"], c["cron"]))
 
     out.append("")
     out.append("## 摩擦指標（不是滿意度）")
