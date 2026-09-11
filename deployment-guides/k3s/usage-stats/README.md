@@ -43,6 +43,34 @@ HTML 是自帶所有資源的單一檔案（零外部請求），`open report.ht
 前置步驟、`cronjob.yaml` 內容與靜態 PV 見 `cronjob.yaml` 檔頭註解與
 `../../K3S.md`「使用統計 CronJob」一節。
 
+## 從 archive/mirror 回填歷史資料（一次性，非每日步驟）
+
+`collect.py` 的 CronJob 只讀**活的**（CLI 還在維護的）transcript／SQLite，
+在 `../K3S.md`「⚠️ transcript 保留期限」建的 archive/mirror（`openab-archive.sh`
+產生）不在它的掃描範圍內——mirror 用重新命名過的子目錄
+（`claude-projects`／`codex-sessions`／`opencode`／`openab`），跟收集器認得的
+活資料佈局不同名，兩者本來就是獨立的機制：mirror 是保留期限清資料前的緊急
+措施，收集器上線後才是正規的持久紀錄。
+
+CronJob 上線之前，有些 bot 已經因為保留期限被清掉一段歷史（例如 genie
+2026-08-04~08-11），那段資料**只存在於 mirror**，活目錄已經沒有。要把它補回
+報表，用 `--archive-root` 指到 mirror 路徑：
+
+    python3 collect.py --root /data/william/openab --out <輸出目錄> \
+      --archive-root /data/william/openab-archive/mirror
+
+做法是幫每隻 bot 建一組符號連結，把 mirror 的重新命名子目錄接回 parser 認得的
+活資料佈局（`.claude/projects` 等），不用改任何 parser。水位另外用
+`archive:<bot>` 命名空間存，跟活資料的水位分開，重跑不會重複計算，也不會
+互相覆蓋。
+
+**這是一次性（或偶爾）的回填操作，不是每日 CronJob 的一部分**——mirror 內容
+變動很慢（週期性 rsync），沒有必要每天跑。回填出來的事件跟 CronJob 收集的
+事件寫進同一批日期分桶檔案，`report.py` 不用改就看得到。
+
+注意：mirror 的 `thread_map.json` 只是某個時間點的舊快照，回填時**刻意不**
+拿它更新 `thread-map-counts.json`——混進「現在」的失敗率代理只會誤導判讀。
+
 ## 跑測試
 
     python3 -m unittest discover -s tests -t . -v

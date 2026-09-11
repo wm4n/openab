@@ -60,6 +60,44 @@ def count_thread_map(home):
     return len(inner)
 
 
+# --- 從 archive/mirror 回填已被清掉的歷史資料 -----------------------------
+#
+# openab-archive.sh（見 K3S.md「transcript 保留期限」）把各 bot 的原始檔案
+# rsync 進鏡像，但用重新命名過的子目錄，跟這裡三個 parser 認得的活資料佈局
+# 不同名。與其改 parser，這裡用符號連結把鏡像佈局「偽裝」成活資料佈局。
+_MIRROR_LAYOUT = (
+    (".claude/projects", "claude-projects"),
+    (".codex/sessions", "codex-sessions"),
+    (".local/share/opencode", "opencode"),
+    (".openab", "openab"),
+)
+
+
+def mirror_shim_home(mirror_bot_dir, shim_home):
+    """在 shim_home 建符號連結，把鏡像的重新命名子目錄接回活資料佈局。
+
+    shim_home 每次呼叫都要是同一個路徑（同一個 bot 對應同一個 shim_home）——
+    claude-code／codex 的 usage_key 內嵌檔案路徑，路徑不穩定的話重跑會被當成
+    新資料重複計算。鏡像沒有的子目錄（例如這隻 bot 不是 opencode）就不建連結，
+    不製造斷掉的符號連結。
+    """
+    for live_rel, mirror_name in _MIRROR_LAYOUT:
+        src = os.path.join(mirror_bot_dir, mirror_name)
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(shim_home, live_rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if not os.path.islink(dst):
+            os.symlink(src, dst)
+    return shim_home
+
+
+def _iter_archive_bots(archive_root):
+    for entry in sorted(os.listdir(archive_root)):
+        if os.path.isdir(os.path.join(archive_root, entry)):
+            yield entry
+
+
 def _bucket(event):
     """事件按台北日界線分桶。沒有時間戳的進 unknown —— 不可丟掉。"""
     ts = event.get("occurred_at")
@@ -99,10 +137,16 @@ def main(argv=None):
     parser.add_argument("--out", required=True, help="事件與水位的輸出目錄")
     parser.add_argument("--bots", default="",
                         help="只處理這些 bot（逗號分隔），預設全部")
+    parser.add_argument("--archive-root", default=None,
+                        help="openab-archive.sh 鏡像的路徑（回填已被保留期限"
+                             "清掉的歷史資料，一次性用，非每日 CronJob 步驟）")
     args = parser.parse_args(argv)
 
     if not os.path.isdir(args.root):
         print("錯誤：%s 不存在" % args.root, file=sys.stderr)
+        return 1
+    if args.archive_root and not os.path.isdir(args.archive_root):
+        print("錯誤：%s 不存在" % args.archive_root, file=sys.stderr)
         return 1
 
     wanted = [b.strip() for b in args.bots.split(",") if b.strip()]
@@ -146,6 +190,41 @@ def main(argv=None):
         print("%-8s 任務 %4d  用量 %4d  紀錄 %6d  不可解析 %d"
               % (bot, len(result.tasks), len(result.usages),
                  result.health["records"], result.health["unparsable"]))
+
+    if args.archive_root:
+        shim_base = os.path.join(args.out, ".mirror-shim")
+        for bot in _iter_archive_bots(args.archive_root):
+            if wanted and bot not in wanted:
+                continue
+            mirror_bot_dir = os.path.join(args.archive_root, bot)
+            shim_home = mirror_shim_home(mirror_bot_dir,
+                                         os.path.join(shim_base, bot))
+            watermark_key = "archive:%s" % bot
+            if not detect_cli(shim_home):
+                # 不可靜默跳過：認不出的鏡像也要出現在健康度報告裡。
+                health["unrecognised"].append(watermark_key)
+                print("警告：認不出 %s 的鏡像格式，略過" % bot, file=sys.stderr)
+                continue
+            try:
+                result = collect_one(shim_home, bot, args.out,
+                                     marks.get(watermark_key, {}))
+            except Exception as exc:  # noqa: BLE001
+                health["errors"][watermark_key] = (
+                    "%s: %s" % (type(exc).__name__, exc))
+                print("錯誤：%s 鏡像回填失敗 —— %s" % (bot, exc), file=sys.stderr)
+                continue
+            marks[watermark_key] = result.watermark
+            # 刻意不寫 tm_counts：鏡像的 thread_map 只是舊快照，混進「現在」
+            # 的失敗率代理只會誤導，見 test_collect_archive.py 的說明。
+            health["bots"][watermark_key] = {
+                "tasks": len(result.tasks), "usages": len(result.usages),
+                "records": result.health["records"],
+                "unparsable": result.health["unparsable"],
+                "notes": result.health["notes"],
+            }
+            print("%-8s(鏡像) 任務 %4d  用量 %4d  紀錄 %6d  不可解析 %d"
+                  % (bot, len(result.tasks), len(result.usages),
+                     result.health["records"], result.health["unparsable"]))
 
     os.makedirs(args.out, exist_ok=True)
     with open(marks_path, "w", encoding="utf-8") as fh:

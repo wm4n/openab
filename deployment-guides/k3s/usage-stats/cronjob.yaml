@@ -11,6 +11,10 @@
 #        --from-file=parse_opencode.py --from-file=collect.py
 #      （腳本改了要重建 configmap；只用標準庫所以不需要裝任何東西）
 #   3. kubectl apply -f cronjob.yaml
+#
+# 這支 CronJob 只讀活的（CLI 還在維護的）資料。已經被保留期限清掉、只存在
+# archive/mirror 的歷史資料，是另一個一次性的手動步驟（--archive-root），
+# 見 README.md「從 archive/mirror 回填歷史資料」，不屬於這個 CronJob。
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
