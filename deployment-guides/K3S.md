@@ -401,28 +401,85 @@ claude-code 自己的行為。
 推定機制是 Claude Code 的 `cleanupPeriodDays`（預設 30 天）。**機制是推論，但資料
 在消失是實測。** 所以處置的順序是「先用不依賴機制的方法保住資料，再處理機制」。
 
-### 第 1 步：立刻快照（不依賴任何推論，零風險，先做這個）
+### 第 1 步：立刻建累積鏡像（不依賴任何推論，零風險，先做這個）
+
+**用 rsync 維護單一累積鏡像，不要每次存一份完整的日期資料夾。** 關鍵在於
+**不加 `--delete`**：來源被 pruning 刪掉的檔案會留在鏡像裡，而鏡像只長出真正的
+新資料。每次同步的成本接近零，體積是「所有曾經存在過的資料」而不是
+「N × 200MB」。
+
+把下面存成 `/usr/local/bin/openab-archive.sh`（`sudo chmod +x`）：
 
 ```bash
-STAMP=$(date +%Y%m%d)
-DEST=/data/william/openab-archive/$STAMP
-sudo mkdir -p "$DEST"
-for d in /data/william/openab/agent-*; do
+#!/bin/bash
+# openab transcript 累積鏡像。claude-code 會自動刪除舊 transcript
+# （見 K3S.md「transcript 保留期限」），這支把還在的複製到鏡像並永久保留。
+#
+# 不加 --delete：來源被刪的檔案要留在鏡像裡，那正是這支存在的理由。
+# --backup-dir：檔案若被改短（compaction），前一版會存進 attic 而不是被蓋掉。
+set -euo pipefail
+SRC=/data/william/openab
+MIRROR=/data/william/openab-archive/mirror
+ATTIC=/data/william/openab-archive/attic/$(date +%Y%m%d-%H%M)
+
+for d in "$SRC"/agent-*; do
+  [ -d "$d" ] || continue
   bot=${d##*/agent-}
-  sudo mkdir -p "$DEST/$bot"
-  [ -d "$d/.claude/projects" ] && sudo cp -a "$d/.claude/projects" "$DEST/$bot/claude-projects"
-  [ -d "$d/.codex/sessions" ]  && sudo cp -a "$d/.codex/sessions"  "$DEST/$bot/codex-sessions"
-  [ -f "$d/.local/share/opencode/opencode.db" ] && sudo cp -a "$d/.local/share/opencode/"opencode.db* "$DEST/$bot/"
-  [ -f "$d/.openab/thread_map.json" ] && sudo cp -a "$d/.openab/thread_map.json" "$DEST/$bot/"
+  mkdir -p "$MIRROR/$bot"
+  for pair in ".claude/projects:claude-projects" \
+              ".codex/sessions:codex-sessions" \
+              ".local/share/opencode:opencode" \
+              ".openab:openab"; do
+    sub=${pair%%:*}; name=${pair##*:}
+    [ -d "$d/$sub" ] || continue
+    mkdir -p "$MIRROR/$bot/$name"
+    rsync -a --backup --backup-dir="$ATTIC/$bot/$name" \
+          "$d/$sub/" "$MIRROR/$bot/$name/"
+  done
 done
-sudo du -sh "$DEST"
+rmdir -p "$ATTIC" 2>/dev/null || true   # 這輪沒有檔案被改就不留空目錄
+du -sh "$MIRROR"
 ```
 
-**`cp -a` 不可換成 `cp -r`** —— 統計的日期維度靠檔案 mtime，`-a` 才會保留。
-預估體積約 200MB（genie 自己就 141MB）。
+第一次執行：
 
-這份原始快照**比正規化事件更值得留**：日後若發現 parser 有 bug，有原始檔才能重跑。
-在收集器上線並驗證穩定之前，建議每週手動再跑一次（或掛個簡單的 CronJob）。
+```bash
+sudo /usr/local/bin/openab-archive.sh
+```
+
+**`rsync -a` 不可換成 `cp -r`** —— 統計的日期維度靠檔案 mtime，`-a` 才會保留。
+首次約 200MB（genie 自己就 141MB），之後每次只增加當期新資料。
+
+`.local/share/opencode` 整個目錄一起同步（含 `opencode.db` 與 `-wal`／`-shm`）。
+DB 正被寫入時複製到的可能是稍微不一致的狀態，對備份用途無妨——真正要讀 DB 時
+（`verify-stats-sources.py`、收集器）都會另外做快照後再讀。
+
+### 這需要多常跑？
+
+**不需要每天。判斷準則是「間隔 < 保留期限」，不是固定頻率。**
+
+保留期限 30 天的話，今天同步一次就涵蓋過去 30 天；29 天後再同步，兩次會重疊、
+中間不會有缺口。**每週一次有 4 倍餘裕**，足夠了。
+
+| 階段 | 建議頻率 | 理由 |
+| --- | --- | --- |
+| 現在（第 3 步尚未驗證） | **每週** | 對 30 天的期限有 4 倍餘裕；再密集也抓不到更多東西 |
+| 第 3 步驗證有效後 | 每月 | pruning 已停，鏡像只是防呆 |
+| 收集器上線後 | 每月 | 正規化事件才是主要紀錄，鏡像退居「parser 有 bug 時能重跑」的原始底本 |
+
+掛上節點的 crontab（每週日凌晨 2 點）：
+
+```bash
+sudo crontab -l 2>/dev/null | { cat; echo "0 2 * * 0 /usr/local/bin/openab-archive.sh >> /var/log/openab-archive.log 2>&1"; } | sudo crontab -
+sudo crontab -l | tail -2
+```
+
+用節點 crontab 而不是 k8s CronJob：這支需要 root 讀 `/data/william/...`，而且不
+需要任何容器化的東西，掛節點上最單純。（收集器則是 k8s CronJob，因為它要跟其他
+部署工件一起管。）
+
+這份原始鏡像**比正規化事件更值得長期留**：日後若發現 parser 有 bug，有原始檔
+才能重跑。
 
 ### 第 2 步：確認目前的設定值
 
