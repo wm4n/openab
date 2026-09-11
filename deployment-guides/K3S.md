@@ -481,6 +481,28 @@ sudo crontab -l | tail -2
 這份原始鏡像**比正規化事件更值得長期留**：日後若發現 parser 有 bug，有原始檔
 才能重跑。
 
+### 早期用日期資料夾存的舊快照可以刪嗎
+
+本節最初的版本是「每次存一份完整的日期資料夾」（`openab-archive/<YYYYMMDD>/`）。
+若你已經照那個版本跑過，**先驗證再刪**——那可能是唯一一份「正在消失中的資料」的
+備份。兩者的目錄結構也不同（舊的把 `opencode.db` 與 `thread_map.json` 放在 bot
+根目錄，新鏡像放在 `opencode/` 與 `openab/` 子目錄），肉眼比對會看到一堆假差異。
+
+`verify-archive-superset.py` 用**內容雜湊**比對、完全忽略路徑：
+
+```bash
+sudo python3 deployment-guides/k3s/verify-archive-superset.py \
+  /data/william/openab-archive/20260911 \
+  /data/william/openab-archive/mirror
+```
+
+- 回報「✓ 完整包含」→ 可以安全刪
+- 回報缺漏，且**全部**是 `opencode.db*` 或 `thread_map.json` → 那些是會變動的檔案
+  在不同時間點的版本，不是遺失的歷史；可以只留那幾個檔
+- 回報缺漏且含 `.jsonl` → **不要刪**，那是鏡像沒抓到的歷史
+
+整份也才 200MB 上下，不確定就留著最省事。
+
 ### 第 2 步：確認目前的設定值
 
 ```bash
