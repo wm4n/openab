@@ -10,6 +10,34 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-10-bot-usage-stats-design.md`
 
+## 如何執行這份計畫（clear session 之後照這個做）
+
+**開一個新 session，在 repo 根目錄（`~/workspace/ai/openab` 或節點上的 clone）
+貼這段：**
+
+```
+用 superpowers:executing-plans 執行
+docs/superpowers/plans/2026-09-11-bot-usage-stats.md，
+從 Task 1 開始，每完成 2 個 task 停下來讓我 review。
+```
+
+`executing-plans` 是 inline execution 的 skill：在同一個 session 裡依序做，
+到檢查點停下來。不需要先讀 spec —— 計畫是自足的，spec 只在需要追溯「為什麼這樣
+設計」時才看。
+
+**執行者需要知道的三件事：**
+
+1. **每個 task 的程式碼都已經實跑驗證過**（抽出 code block 組成可執行專案跑
+   unittest，193 個測試全過，含全管線端對端）。所以 code block 是照抄即可，不是
+   示意。若照抄後測試沒過，先懷疑抄漏了而不是計畫錯了。
+2. **每個 task 的 Step 4 都寫了預期的累計測試數**（12 → 26 → 40 → 52 → 69 → 81
+   → 99 → 114 → 128 → 152 → 177 → 182 → 193）。數字對不上就是漏了東西。
+3. **Task 12 Step 8 的人工對照不可省** —— 拿一天的報表去比對 Discord 頻道當天的
+   實際訊息數。統計系統最常見的失敗是「跑得很順、數字全錯」。
+
+**前置條件（必須先做完）：** `deployment-guides/K3S.md` 的「⚠️ transcript 保留期限」
+一節。那件事有時效性，而且與本計畫獨立 —— 資料每天在消失，收集器還要幾天才會上線。
+
 ## Global Constraints
 
 - **僅標準庫。** 不得 `pip install` 任何東西。JSON 圖表庫、pytest、pandas 全部禁止。

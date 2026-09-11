@@ -386,6 +386,91 @@ helm upgrade <openab-claude 或 openab-codex> ../../charts/openab -n cac -f <val
 
 ---
 
+## ⚠️ transcript 保留期限：資料每天在消失（2026-09-11 發現）
+
+**claude-code 家族的 transcript 會被自動刪除，而那是使用統計唯一的資料來源。**
+發現時 genie 只剩 31 天、rick/morty 24 天的歷史，codex（Summer）則有 52 天。
+
+**證據**（不是推測）：genie 在 2026-08-04 明確在運作（那天有一整份切換它 GitHub
+帳號的設計文件，還 `kubectl exec` 進過它的 pod，見
+`docs/superpowers/specs/2026-08-04-genie-github-account-switch-design.md`），但實測
+最舊的 transcript 是 2026-08-11 —— **中間 7 天的紀錄不存在**，不可能是「當時還沒
+部署」。而 2026-09-11 減 31 天正好落在 08-11。codex 不受影響（52 天）佐證這是
+claude-code 自己的行為。
+
+推定機制是 Claude Code 的 `cleanupPeriodDays`（預設 30 天）。**機制是推論，但資料
+在消失是實測。** 所以處置的順序是「先用不依賴機制的方法保住資料，再處理機制」。
+
+### 第 1 步：立刻快照（不依賴任何推論，零風險，先做這個）
+
+```bash
+STAMP=$(date +%Y%m%d)
+DEST=/data/william/openab-archive/$STAMP
+sudo mkdir -p "$DEST"
+for d in /data/william/openab/agent-*; do
+  bot=${d##*/agent-}
+  sudo mkdir -p "$DEST/$bot"
+  [ -d "$d/.claude/projects" ] && sudo cp -a "$d/.claude/projects" "$DEST/$bot/claude-projects"
+  [ -d "$d/.codex/sessions" ]  && sudo cp -a "$d/.codex/sessions"  "$DEST/$bot/codex-sessions"
+  [ -f "$d/.local/share/opencode/opencode.db" ] && sudo cp -a "$d/.local/share/opencode/"opencode.db* "$DEST/$bot/"
+  [ -f "$d/.openab/thread_map.json" ] && sudo cp -a "$d/.openab/thread_map.json" "$DEST/$bot/"
+done
+sudo du -sh "$DEST"
+```
+
+**`cp -a` 不可換成 `cp -r`** —— 統計的日期維度靠檔案 mtime，`-a` 才會保留。
+預估體積約 200MB（genie 自己就 141MB）。
+
+這份原始快照**比正規化事件更值得留**：日後若發現 parser 有 bug，有原始檔才能重跑。
+在收集器上線並驗證穩定之前，建議每週手動再跑一次（或掛個簡單的 CronJob）。
+
+### 第 2 步：確認目前的設定值
+
+```bash
+sudo grep -o '"cleanupPeriodDays":[0-9]*' /data/william/openab/agent-*/.claude/settings.json
+sudo cat /data/william/openab/agent-genie/.claude/settings.json
+```
+
+沒有輸出＝從沒設定過＝走預設值。
+
+### 第 3 步：調高保留期限（止血）
+
+沿用本文件「切換 Claude Code 用的 model」那一節的 `node -e` 合併模式 —— 走
+`kubectl exec` 才會以 pod 使用者（uid 1000/node）身分寫入，直接在節點上用 root 改
+會弄壞檔案擁有權。
+
+```bash
+for name in rick morty genie; do
+  echo "--- $name ---"
+  kubectl exec -i deployment/openab-claude-$name -n cac -- node -e '
+const fs = require("fs");
+const path = "/home/node/.claude/settings.json";
+let settings = {};
+try { settings = JSON.parse(fs.readFileSync(path, "utf8")); } catch (e) {}
+settings.cleanupPeriodDays = 365;
+fs.writeFileSync(path, JSON.stringify(settings, null, 2));
+console.log(JSON.stringify(settings));
+'
+done
+```
+
+**為什麼是 365 不是更大**：genie 30 天長了 141MB，約 4.7MB/日、1.7GB/年。365 天在
+30Gi 的 PVC 上很寬裕，但無上限地留會讓 PVC 有一天被塞爆而沒人發現。一年夠所有
+分析用途，到時再決定要不要歸檔。
+
+**這一步是「嘗試根治」，不是保證。** `cleanupPeriodDays` 是推定的鍵名，Claude Code
+對不認識的鍵是靜默忽略 —— 設錯不會報錯，也不會壞掉，但也不會生效。**真正的驗證要等
+30 天後回頭看最舊 transcript 有沒有繼續往前推**。在那之前，第 1 步的快照才是可靠的
+保護。
+
+### 之後
+
+`deployment-guides/k3s/usage-stats/` 的收集器上線後，正規化事件會成為持久紀錄，
+不再受這個期限影響。實作計畫見
+`docs/superpowers/plans/2026-09-11-bot-usage-stats.md`。
+
+---
+
 ## 疑難排解
 
 | 症狀 | 原因 | 解法 |
