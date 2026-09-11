@@ -1,0 +1,13 @@
+{
+  "channel_names": {
+    "1528965074562191420": "cac-dev-team",
+    "1528965173761802420": "cac-notify",
+    "1522271475552354394": "dev-bot",
+    "1526283579309690990": "bot-notify"
+  },
+  "allowlist_bounds": {
+    "rick": 1,
+    "morty": 1
+  },
+  "pricebook": {}
+}
