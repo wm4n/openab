@@ -128,3 +128,117 @@ def daily_conversations(tasks):
         else:
             bucket["continued"] += 1
     return out
+
+
+# --- 用量側 ---------------------------------------------------------------
+
+# tokens 裡前四項互斥可加；reasoning 只有 opencode 有（該家是加法項）。
+# codex 的 reasoning 是 output 的子集，parser 已把它移到 tokens_info，
+# 所以這裡看到的 reasoning 一律是加法項。
+TOKEN_KINDS = ("input", "output", "cache_read", "cache_write", "reasoning")
+
+# 只有這兩種來源代表真實可加的金額。subscription 是訂閱制（token 數不等於
+# 帳單金額）、unavailable 是有 token 但拿不到成本 —— 兩者都不可累加金額，
+# 但必須以分類出現在報表上，否則會被讀成「不花錢」。
+_MONEY_SOURCES = ("cli", "pricebook")
+
+
+def dedupe_usages(usages):
+    """依 (bot, usage_key) 去重，讓 CronJob 重跑不會重複計算。"""
+    seen = set()
+    out = []
+    for row in usages:
+        key = (row.get("bot"), row.get("usage_key"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def daily_tokens(usages):
+    """{day: {bot: {(model_id, variant): {kind: n}}}}。
+
+    model 維度是 (id, variant) 而不只是 id —— opencode 的 variant
+    （實測 walle 有 low／default）可能影響計價。
+    """
+    out = {}
+    for row in dedupe_usages(usages):
+        tokens = row.get("tokens") or {}
+        if not tokens:
+            continue
+        day = _day_of(row)
+        model_key = (row.get("model_id"), row.get("model_variant"))
+        bucket = out.setdefault(day, {}).setdefault(
+            row.get("bot"), {}).setdefault(model_key, {})
+        for kind in TOKEN_KINDS:
+            value = tokens.get(kind)
+            if isinstance(value, int) and not isinstance(value, bool):
+                bucket[kind] = bucket.get(kind, 0) + value
+    return out
+
+
+def daily_cost(usages):
+    """{day: {bot: {cost_source: float}}}。四種來源都會出現，缺的是真 0。"""
+    out = {}
+    for row in dedupe_usages(usages):
+        day = _day_of(row)
+        bucket = out.setdefault(day, {}).setdefault(row.get("bot"), {
+            "cli": 0.0, "pricebook": 0.0, "subscription": 0.0,
+            "unavailable": 0.0})
+        source = row.get("cost_source")
+        if source not in bucket:
+            continue
+        cost = row.get("cost")
+        if source in _MONEY_SOURCES and isinstance(cost, (int, float)):
+            bucket[source] += float(cost)
+    return out
+
+
+def _add_tokens(target, tokens):
+    for kind in TOKEN_KINDS:
+        value = tokens.get(kind)
+        if isinstance(value, int) and not isinstance(value, bool):
+            target[kind] = target.get(kind, 0) + value
+
+
+def session_attribution(tasks, usages):
+    """把用量歸因到 session 的真人 sender。
+
+    歸因層級刻意停在 session：把 token 對應到「某一個具體任務」需要一個
+    三種格式都不保證的順序假設。一個 session 只有一位真人時無歧義；有多位
+    時歸到 shared 不強行拆分。coverage 是無歧義歸因佔總量的比例，沒有它
+    讀者無法判斷這個數字可信到什麼程度。
+    """
+    senders = {}
+    for task in dedupe_tasks(tasks):
+        if task.get("source") != "human":
+            continue
+        session_id = task.get("session_id")
+        if session_id:
+            senders.setdefault((task.get("bot"), session_id), set()).add(
+                task.get("sender_id"))
+
+    out = {}
+    for row in dedupe_usages(usages):
+        tokens = row.get("tokens") or {}
+        if not tokens:
+            continue
+        bot = row.get("bot")
+        entry = out.setdefault(bot, {"attributed": {}, "shared": {},
+                                     "unattributed": {}, "coverage": 0.0})
+        who = senders.get((bot, row.get("session_id")), set())
+        if len(who) == 1:
+            sender_id = next(iter(who))
+            _add_tokens(entry["attributed"].setdefault(sender_id, {}), tokens)
+        elif len(who) > 1:
+            _add_tokens(entry["shared"], tokens)
+        else:
+            _add_tokens(entry["unattributed"], tokens)
+
+    for entry in out.values():
+        attributed = sum(sum(v.values()) for v in entry["attributed"].values())
+        total = (attributed + sum(entry["shared"].values())
+                 + sum(entry["unattributed"].values()))
+        entry["coverage"] = (attributed / total) if total else 0.0
+    return out
