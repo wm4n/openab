@@ -156,6 +156,7 @@ metadata:
   namespace: cac
 spec:
   schedule: "*/10 * * * *"
+  suspend: true # 2026-09-14 暫停：這支是唯一會直接 trigger Rick 的 poller
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
