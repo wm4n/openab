@@ -244,6 +244,52 @@ def session_attribution(tasks, usages):
     return out
 
 
+def cost_attribution(tasks, usages):
+    """把有實際金額的成本歸因到 session 的真人 sender。
+
+    跟 session_attribution 同一套「一人無歧義／多人 shared／無真人
+    unattributed」規則，但歸因的是金額不是 token，而且只看
+    cost_source 屬於 _MONEY_SOURCES 的列——subscription 不是帳單金額、
+    unavailable 沒有成本資料，攤到人頭上只會製造假訊號。session_
+    attribution 用 `if not tokens: continue` 篩選，會把 opencode 的
+    session_cost 事件（tokens 是空 dict）整批濾掉，所以這裡不能共用
+    那個迴圈，得另立一支。
+    """
+    senders = {}
+    for task in dedupe_tasks(tasks):
+        if task.get("source") != "human":
+            continue
+        session_id = task.get("session_id")
+        if session_id:
+            senders.setdefault((task.get("bot"), session_id), set()).add(
+                task.get("sender_id"))
+
+    out = {}
+    for row in dedupe_usages(usages):
+        cost = row.get("cost")
+        source = row.get("cost_source")
+        if source not in _MONEY_SOURCES or not isinstance(cost, (int, float)):
+            continue
+        bot = row.get("bot")
+        entry = out.setdefault(bot, {"attributed": {}, "shared": 0.0,
+                                     "unattributed": 0.0, "coverage": 0.0})
+        who = senders.get((bot, row.get("session_id")), set())
+        if len(who) == 1:
+            sender_id = next(iter(who))
+            entry["attributed"][sender_id] = (
+                entry["attributed"].get(sender_id, 0.0) + float(cost))
+        elif len(who) > 1:
+            entry["shared"] += float(cost)
+        else:
+            entry["unattributed"] += float(cost)
+
+    for entry in out.values():
+        attributed = sum(entry["attributed"].values())
+        total = attributed + entry["shared"] + entry["unattributed"]
+        entry["coverage"] = (attributed / total) if total else 0.0
+    return out
+
+
 # --- 摩擦指標、失敗率代理、覆蓋率 ------------------------------------------
 
 def _median(values):

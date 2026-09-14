@@ -107,6 +107,7 @@ def build_report(tasks, usages, config, since, until, collect_health,
         "daily_cost": aggregate.daily_cost(usages),
         "active_users": aggregate.active_users(tasks),
         "attribution": aggregate.session_attribution(tasks, usages),
+        "cost_attribution": aggregate.cost_attribution(tasks, usages),
         "friction": aggregate.friction_signals(tasks),
         "failure_proxy": aggregate.failure_proxy(thread_map_counts or {}, tasks),
         "by_channel": aggregate.tasks_by_channel(tasks),
@@ -147,6 +148,35 @@ def _caveat_lines(report):
         lines.append("收集時有 %d 筆紀錄無法解析（可能是 CLI 升版改了格式）。"
                      % unparsable)
     return lines
+
+
+def _burn_rows(report):
+    """「誰在燒量」的逐列資料：(bot, 使用者標籤, token 明細 dict, 花費或 None)。
+
+    attribution 只到 session 層：一人時歸給那個人，多人共用記一列「共用」
+    不強行拆分，沒有真人（例如純 cron）記一列「無法歸因」——都不可靜默
+    省略，否則讀者會誤以為那些用量不存在。花費是 None 表示這個桶完全沒有
+    可信的金額來源（例如 rick/morty 是 Claude 訂閱制），不是「花了 0 元」。
+    """
+    rows = []
+    cost_attribution = report.get("cost_attribution") or {}
+    bots = sorted(set(report["attribution"]) | set(cost_attribution))
+    for bot in bots:
+        attrib = report["attribution"].get(bot, {})
+        cost = cost_attribution.get(bot, {})
+        for sender_id, tokens in sorted(
+                attrib.get("attributed", {}).items(),
+                key=lambda kv: -sum(kv[1].values())):
+            label = user_label(sender_id, None, report["user_names"])
+            rows.append((bot, label, tokens,
+                        cost.get("attributed", {}).get(sender_id)))
+        if attrib.get("shared"):
+            rows.append((bot, "（多人共用 session）", attrib["shared"],
+                        cost.get("shared")))
+        if attrib.get("unattributed"):
+            rows.append((bot, "（無法歸因，例如純 cron）", attrib["unattributed"],
+                        cost.get("unattributed")))
+    return rows
 
 
 def render_text(report):
@@ -194,9 +224,16 @@ def render_text(report):
                        % (user_label(sender_id, info["display_name"],
                                     report["user_names"]), info["tasks"]))
 
-    out.append("\n[Token 歸因]  誰在燒量（session 層，估計值）")
+    out.append("\n[Token 歸因]  誰在燒量（session 層，估計值，多人共用不強行拆分）")
+    burn_rows = _burn_rows(report)
     for bot, info in sorted(report["attribution"].items()):
         out.append("  %-8s  無歧義歸因覆蓋率 %.0f%%" % (bot, info["coverage"] * 100))
+        for row_bot, label, tokens, cost in burn_rows:
+            if row_bot != bot:
+                continue
+            kinds = ", ".join("%s=%d" % (k, v) for k, v in sorted(tokens.items()))
+            cost_str = ("花費 %.4f" % cost) if cost is not None else "花費未知"
+            out.append("      %-24s %-40s %s" % (label, kinds, cost_str))
 
     out.append("\n[摩擦指標]  不是滿意度")
     for bot, info in sorted(report["friction"].items()):
@@ -308,6 +345,21 @@ def render_md(report):
                        % (bot, user_label(sender_id, info["display_name"],
                                           report["user_names"]),
                           info["tasks"]))
+
+    out.append("")
+    out.append("## 誰在燒量（session 層估計值）")
+    out.append("")
+    out.append("歸因只到 session 層：一人時歸給那個人，多人共用的 session 記為"
+               "「多人共用 session」不強行拆分，沒有真人（例如純 cron）記為"
+               "「無法歸因」。花費是 `—` 表示這個桶完全沒有可信的金額來源"
+               "（例如 Claude 訂閱制），不是花了 0 元。")
+    out.append("")
+    out.append("| bot | 使用者／備註 | token 明細 | 花費 |")
+    out.append("| --- | --- | --- | --- |")
+    for bot, label, tokens, cost in _burn_rows(report):
+        kinds = ", ".join("%s=%d" % (k, v) for k, v in sorted(tokens.items()))
+        cost_str = ("%.4f" % cost) if cost is not None else "—"
+        out.append("| %s | %s | %s | %s |" % (bot, label, kinds, cost_str))
 
     out.append("")
     out.append("## 各頻道使用量")

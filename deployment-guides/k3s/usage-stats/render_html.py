@@ -284,6 +284,13 @@ def render(report):
           ", ".join("%s=%d" % (k, v) for k, v in sorted(row["tokens"].items()))]
          for row in report["token_rows"]]))
 
+    parts.append("<h2>成本</h2>")
+    parts.append(_table(
+        ["日期", "bot", "CLI 自算", "價目表"],
+        [[day, bot, "%.4f" % s["cli"], "%.4f" % s["pricebook"]]
+         for day, bots in sorted(report["daily_cost"].items())
+         for bot, s in sorted(bots.items())]))
+
     parts.append("<h2>活躍觸發者</h2>")
     parts.append(_table(
         ["bot", "人數", "備註"],
@@ -299,6 +306,14 @@ def render(report):
          for bot, users in sorted(report["active_users"].items())
          for sender_id, info in sorted(users.items(),
                                        key=lambda kv: -kv[1]["tasks"])]))
+
+    parts.append("<h2>誰在燒量（session 層估計值）</h2>")
+    parts.append(_table(
+        ["bot", "使用者／備註", "token 明細", "花費"],
+        [[bot, label,
+          ", ".join("%s=%d" % (k, v) for k, v in sorted(tokens.items())),
+          ("%.4f" % cost) if cost is not None else "—"]
+         for bot, label, tokens, cost in report_mod._burn_rows(report)]))
 
     parts.append("<h2>各頻道使用量</h2>")
     parts.append(_table(

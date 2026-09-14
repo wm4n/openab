@@ -5,7 +5,8 @@
 import unittest
 
 from aggregate import (
-    TOKEN_KINDS, daily_cost, daily_tokens, dedupe_usages, session_attribution,
+    TOKEN_KINDS, cost_attribution, daily_cost, daily_tokens, dedupe_usages,
+    session_attribution,
 )
 
 
@@ -127,6 +128,67 @@ class TestSessionAttribution(unittest.TestCase):
 
     def test_coverage_is_zero_when_there_is_nothing_to_attribute(self):
         self.assertEqual(session_attribution([], []), {})
+
+
+class TestCostAttribution(unittest.TestCase):
+    """跟 session_attribution 同一套歸因規則，但歸因的是金額不是 token。
+
+    session_attribution 用 `if not tokens: continue` 篩選，會把 opencode
+    的 session_cost 事件（tokens 是空 dict）整批濾掉，所以成本歸因必須
+    另立一支，不能共用同一個迴圈。
+    """
+
+    def test_single_human_session_cost_is_attributed_unambiguously(self):
+        tasks = [task("d:1", sender_id="824", session_id="sA")]
+        usages = [usage("k1", {}, session_id="sA", cost=1.5, cost_source="cli",
+                        origin="session_cost")]
+        got = cost_attribution(tasks, usages)["rick"]
+        self.assertAlmostEqual(got["attributed"]["824"], 1.5)
+        self.assertEqual(got["coverage"], 1.0)
+
+    def test_multi_human_session_cost_goes_to_shared_not_split(self):
+        tasks = [task("d:1", sender_id="824", session_id="sA"),
+                 task("d:2", sender_id="999", session_id="sA")]
+        usages = [usage("k1", {}, session_id="sA", cost=1.5, cost_source="cli",
+                        origin="session_cost")]
+        got = cost_attribution(tasks, usages)["rick"]
+        self.assertAlmostEqual(got["shared"], 1.5)
+        self.assertEqual(got["attributed"], {})
+
+    def test_session_with_no_human_task_is_unattributed(self):
+        tasks = [task("d:1", source="cron", sender_id="openab-cron",
+                      session_id="sA")]
+        usages = [usage("k1", {}, session_id="sA", cost=2.0, cost_source="cli",
+                        origin="session_cost")]
+        got = cost_attribution(tasks, usages)["rick"]
+        self.assertAlmostEqual(got["unattributed"], 2.0)
+
+    def test_subscription_cost_is_never_attributed_to_anyone(self):
+        # Claude 家族的 subscription 不是真金額，攤到人頭上會產生假訊號
+        tasks = [task("d:1", sender_id="824", session_id="sA")]
+        usages = [usage("k1", {"input": 100}, session_id="sA", cost=None,
+                        cost_source="subscription")]
+        self.assertEqual(cost_attribution(tasks, usages), {})
+
+    def test_unavailable_cost_is_never_attributed_to_anyone(self):
+        tasks = [task("d:1", sender_id="824", session_id="sA")]
+        usages = [usage("k1", {"input": 100}, session_id="sA", cost=None,
+                        cost_source="unavailable")]
+        self.assertEqual(cost_attribution(tasks, usages), {})
+
+    def test_coverage_reflects_the_unambiguous_share_of_money(self):
+        tasks = [task("d:1", sender_id="824", session_id="sA"),
+                 task("d:2", sender_id="824", session_id="sB"),
+                 task("d:3", sender_id="999", session_id="sB")]
+        usages = [usage("k1", {}, session_id="sA", cost=3.0, cost_source="cli",
+                        origin="session_cost"),
+                  usage("k2", {}, session_id="sB", cost=1.0, cost_source="cli",
+                        origin="session_cost")]
+        got = cost_attribution(tasks, usages)["rick"]
+        self.assertAlmostEqual(got["coverage"], 0.75)
+
+    def test_empty_input_returns_empty_dict(self):
+        self.assertEqual(cost_attribution([], []), {})
 
 
 if __name__ == "__main__":
