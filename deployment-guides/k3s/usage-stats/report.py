@@ -124,7 +124,9 @@ CAVEATS = (
     "錯誤只丟給聊天平台。",
     "對話數的「有活動」跨日會重複計入（session TTL 24 小時），"
     "所以**逐日加總會大於實際對話數**。",
-    "摩擦指標**不是滿意度量測**，兩個訊號都弱，只能看趨勢不能當結論。",
+    "摩擦指標**不是滿意度量測**，兩個訊號都弱，只能看趨勢不能當結論。"
+    "「平均每 session 任務數」≈1 代表大多一次問完就結束，明顯大於 1 代表"
+    "常常來回追問——但追問也可能只是任務本身複雜，不是 bot 沒答對。",
     "「誰在燒量」歸因到 session 層；多人共用的 session 記為 shared 不強行拆分，"
     "覆蓋率請看歸因區塊。",
 )
@@ -238,7 +240,7 @@ def render_text(report):
     out.append("\n[摩擦指標]  不是滿意度")
     for bot, info in sorted(report["friction"].items()):
         median = info["followup_median_seconds"]
-        out.append("  %-8s  追問間隔中位數 %s  每 session 任務數 %s  "
+        out.append("  %-8s  追問間隔中位數 %s  平均每 session 任務數 %s  "
                    "只問一次就沒下文 %d"
                    % (bot,
                       ("%.0f 秒" % median) if median is not None else "n/a",
@@ -375,7 +377,7 @@ def render_md(report):
     out.append("")
     out.append("## 摩擦指標（不是滿意度）")
     out.append("")
-    out.append("| bot | 追問間隔中位數（秒） | 每 session 任務數 | 只問一次就沒下文 |")
+    out.append("| bot | 追問間隔中位數（秒） | 平均每 session 任務數 | 只問一次就沒下文 |")
     out.append("| --- | --- | --- | --- |")
     for bot, info in sorted(report["friction"].items()):
         median = info["followup_median_seconds"]

@@ -163,11 +163,14 @@ def svg_hbars(rows, title):
                            "".join(marks)))
 
 
-def _table(headers, rows):
+def _table(headers, rows, row_classes=None):
+    """row_classes 是每一列可選的 CSS class（例如標記有花費的列）。"""
     head = "".join("<th>%s</th>" % _esc(h) for h in headers)
+    classes = row_classes or [""] * len(rows)
     body = "".join(
-        "<tr>%s</tr>" % "".join("<td>%s</td>" % _esc(c) for c in row)
-        for row in rows)
+        '<tr%s>%s</tr>' % ((' class="%s"' % cls) if cls else "",
+                          "".join("<td>%s</td>" % _esc(c) for c in row))
+        for row, cls in zip(rows, classes))
     return ('<div class="scroll"><table><thead><tr>%s</tr></thead>'
             "<tbody>%s</tbody></table></div>" % (head, body))
 
@@ -177,12 +180,14 @@ _CSS = """
   --surface: #fcfcfb; --panel: #ffffff; --ink: #1a1a19; --ink-2: #55534f;
   --ink-3: #86837d; --rule: #e6e4e0;
   --series-1: %s; --series-2: %s; --series-3: %s;
+  --cost-flag: #fdedc8;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --surface: #1a1a19; --panel: #232320; --ink: #f2f0ec; --ink-2: #b3afa8;
     --ink-3: #86837d; --rule: #33322e;
     --series-1: %s; --series-2: %s; --series-3: %s;
+    --cost-flag: #3f341a;
   }
 }
 * { box-sizing: border-box; }
@@ -205,6 +210,7 @@ svg { width: 100%%; height: auto; display: block; }
 .key { display: inline-flex; align-items: center; gap: 6px; }
 .key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .scroll { overflow-x: auto; }
+.cost-flag { background: var(--cost-flag); }
 table { border-collapse: collapse; width: 100%%; font-size: .86rem; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule);
          white-space: nowrap; }
@@ -284,12 +290,16 @@ def render(report):
           ", ".join("%s=%d" % (k, v) for k, v in sorted(row["tokens"].items()))]
          for row in report["token_rows"]]))
 
+    cost_entries = [(day, bot, s) for day, bots in sorted(report["daily_cost"].items())
+                    for bot, s in sorted(bots.items())]
     parts.append("<h2>成本</h2>")
     parts.append(_table(
         ["日期", "bot", "CLI 自算", "價目表"],
         [[day, bot, "%.4f" % s["cli"], "%.4f" % s["pricebook"]]
-         for day, bots in sorted(report["daily_cost"].items())
-         for bot, s in sorted(bots.items())]))
+         for day, bot, s in cost_entries],
+        # 標出真的有花錢的日子，跟訂閱制／無成本資料的日子一眼區分開。
+        ["cost-flag" if (s["cli"] > 0 or s["pricebook"] > 0) else ""
+         for _day, _bot, s in cost_entries]))
 
     parts.append("<h2>活躍觸發者</h2>")
     parts.append(_table(
@@ -325,7 +335,7 @@ def render(report):
 
     parts.append("<h2>摩擦指標（不是滿意度）</h2>")
     parts.append(_table(
-        ["bot", "追問間隔中位數（秒）", "每 session 任務數", "只問一次就沒下文"],
+        ["bot", "追問間隔中位數（秒）", "平均每 session 任務數", "只問一次就沒下文"],
         [[bot,
           "%.0f" % info["followup_median_seconds"]
           if info["followup_median_seconds"] is not None else "n/a",

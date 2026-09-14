@@ -27,7 +27,10 @@ def report_fixture():
             {"day": "2026-09-10", "bot": "rick", "model_id": "claude-opus-5",
              "model_variant": None,
              "tokens": {"input": 100, "output": 200, "cache_read": 900}}],
-        "daily_cost": {"2026-09-10": {"rick": {"cli": 1.5, "pricebook": 0.0,
+        "daily_cost": {"2026-09-09": {"rick": {"cli": 0.0, "pricebook": 0.0,
+                                               "subscription": 0.0,
+                                               "unavailable": 0.0}},
+                       "2026-09-10": {"rick": {"cli": 1.5, "pricebook": 0.0,
                                                "subscription": 0.0,
                                                "unavailable": 0.0}}},
         "active_users": {"rick": {"824": {"display_name": "william", "tasks": 5}}},
@@ -186,6 +189,17 @@ class TestRender(unittest.TestCase):
         for match in re.finditer("滿意", self.html):
             self.assertEqual(self.html[max(0, match.start() - 2):match.start()],
                              "不是")
+
+    def test_days_with_real_cost_are_visually_flagged(self):
+        # fixture 裡 09-09 是 0 元、09-10 是 1.5 —— 只有後者該被標記
+        rows = re.findall(r"<tr[^>]*>.*?</tr>", self.html, re.S)
+        flagged = [r for r in rows if "cost-flag" in r]
+        self.assertTrue(any("1.5000" in r for r in flagged))
+        self.assertFalse(any("0.0000" in r and "1.5000" not in r
+                             for r in flagged))
+
+    def test_cost_flag_colour_token_is_defined_in_both_palettes(self):
+        self.assertIn("--cost-flag", self.html)
 
     def test_body_paints_its_own_background(self):
         self.assertIn("body", self.html)
