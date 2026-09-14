@@ -380,7 +380,27 @@ def render(report):
          for bot in sorted(set(report["hourly_activity"])
                            | set(report["weekday_activity"]))]))
 
+    weeks = sorted(w for w in (set(report["weekly_tasks"])
+                               | set(report["weekly_cost"])) if w != "unknown")
+    weekly_task_series = {"human": {}, "bot_relay": {}, "cron": {}}
+    for week, bots in report["weekly_tasks"].items():
+        for counts in bots.values():
+            for key in weekly_task_series:
+                weekly_task_series[key][week] = (
+                    weekly_task_series[key].get(week, 0) + counts[key])
+    weekly_cost_series = {"cli": {}}
+    for week, bots in report["weekly_cost"].items():
+        for costs in bots.values():
+            weekly_cost_series["cli"][week] = (
+                weekly_cost_series["cli"].get(week, 0) + costs["cli"])
+
     parts.append("<h2>週對週趨勢</h2>")
+    parts.append(svg_stacked(weeks, weekly_task_series,
+                             {"human": "真人", "bot_relay": "bot 互呼",
+                              "cron": "cron 排程"},
+                             "每週任務數（跨全部 bot 加總）"))
+    parts.append(svg_stacked(weeks, weekly_cost_series, {"cli": "CLI 自算成本"},
+                             "每週 CLI 自算成本（跨全部 bot 加總，訂閱制不列）"))
     weekly_rows = []
     for week in sorted(set(report["weekly_tasks"]) | set(report["weekly_cost"])):
         bots = report["weekly_tasks"].get(week, {})

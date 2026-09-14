@@ -52,10 +52,15 @@ def report_fixture():
         "weekday_activity": {"rick": {d: (3 if d == "四" else 0)
                                      for d in ("一", "二", "三", "四", "五", "六", "日")}},
         "weekly_tasks": {"2026-W37": {"rick": {"human": 5, "bot_relay": 1,
-                                               "cron": 9}}},
+                                               "cron": 9}},
+                        "2026-W38": {"rick": {"human": 8, "bot_relay": 0,
+                                              "cron": 6}}},
         "weekly_cost": {"2026-W37": {"rick": {"cli": 1.5, "pricebook": 0.0,
                                               "subscription": 0.0,
-                                              "unavailable": 0.0}}},
+                                              "unavailable": 0.0}},
+                       "2026-W38": {"rick": {"cli": 2.25, "pricebook": 0.0,
+                                             "subscription": 0.0,
+                                             "unavailable": 0.0}}},
         "allowlist_bounds": {"rick": 1},
         "channel_names": {"1528965074562191420": "cac-dev-team"},
         "user_names": {"824": "william chen"},
@@ -218,6 +223,13 @@ class TestRender(unittest.TestCase):
     def test_shows_weekly_trend_table(self):
         self.assertIn("週對週趨勢", self.html)
         self.assertIn("2026-W37", self.html)
+
+    def test_weekly_trend_has_stacked_task_chart_and_cost_chart(self):
+        # 兩張圖：任務數（真人/bot互呼/cron 三色堆疊）+ 成本（單一數列）
+        self.assertIn("每週任務數", self.html)
+        self.assertIn("每週 CLI 自算成本", self.html)
+        self.assertIn("W37", self.html)
+        self.assertIn("W38", self.html)
 
     def test_body_paints_its_own_background(self):
         self.assertIn("body", self.html)
