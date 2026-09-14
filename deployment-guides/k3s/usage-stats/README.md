@@ -5,6 +5,7 @@
 
 設計依據：`docs/superpowers/specs/2026-09-10-bot-usage-stats-design.md`
 實作計畫：`docs/superpowers/plans/2026-09-11-bot-usage-stats.md`
+建置記錄與經驗教訓：[`RETROSPECTIVE.md`](RETROSPECTIVE.md)
 
 ## 元件
 
