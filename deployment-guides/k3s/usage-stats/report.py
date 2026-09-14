@@ -18,7 +18,8 @@ import sys
 import aggregate
 from events import read_events
 
-DEFAULT_CONFIG = {"channel_names": {}, "allowlist_bounds": {}, "pricebook": {}}
+DEFAULT_CONFIG = {"channel_names": {}, "allowlist_bounds": {}, "pricebook": {},
+                  "user_names": {}}
 
 _TZ_NAME = "Asia/Taipei"
 
@@ -28,6 +29,19 @@ def channel_label(channel_id, channel_names):
     if channel_id == "unknown":
         return "（無頻道資訊）"
     return (channel_names or {}).get(channel_id, channel_id)
+
+
+def user_label(sender_id, display_name, user_names):
+    """觸發者的顯示名稱。設定檔的對照優先於 sender_context 帶的 display_name
+
+    （後者是 Discord 當下的顯示名稱，可能是暱稱或亂碼；設定檔讓你明確指定
+    「這個 sender_id 對應哪個真人」）。兩者都沒有就回退到原始 sender_id ——
+    絕不留空白。
+    """
+    override = (user_names or {}).get(sender_id)
+    if override:
+        return override
+    return display_name or sender_id
 
 
 def load_config(path):
@@ -98,6 +112,7 @@ def build_report(tasks, usages, config, since, until, collect_health,
         "by_channel": aggregate.tasks_by_channel(tasks),
         "allowlist_bounds": dict(config.get("allowlist_bounds") or {}),
         "channel_names": dict(config.get("channel_names") or {}),
+        "user_names": dict(config.get("user_names") or {}),
     }
 
 
@@ -176,7 +191,8 @@ def render_text(report):
         for sender_id, info in sorted(users.items(),
                                       key=lambda kv: -kv[1]["tasks"]):
             out.append("      %-24s %4d 個任務"
-                       % (info["display_name"] or sender_id, info["tasks"]))
+                       % (user_label(sender_id, info["display_name"],
+                                    report["user_names"]), info["tasks"]))
 
     out.append("\n[Token 歸因]  誰在燒量（session 層，估計值）")
     for bot, info in sorted(report["attribution"].items()):
@@ -279,6 +295,19 @@ def render_md(report):
         bound = report["allowlist_bounds"].get(bot)
         note = ("受 allowlist 限制，上界 %d 人" % bound) if bound else "—"
         out.append("| %s | %d | %s |" % (bot, len(users), note))
+
+    out.append("")
+    out.append("### 逐使用者任務數")
+    out.append("")
+    out.append("| bot | 使用者 | 任務數 |")
+    out.append("| --- | --- | --- |")
+    for bot, users in sorted(report["active_users"].items()):
+        for sender_id, info in sorted(users.items(),
+                                      key=lambda kv: -kv[1]["tasks"]):
+            out.append("| %s | %s | %d |"
+                       % (bot, user_label(sender_id, info["display_name"],
+                                          report["user_names"]),
+                          info["tasks"]))
 
     out.append("")
     out.append("## 各頻道使用量")

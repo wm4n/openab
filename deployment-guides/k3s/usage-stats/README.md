@@ -71,6 +71,24 @@ CronJob 上線之前，有些 bot 已經因為保留期限被清掉一段歷史�
 注意：mirror 的 `thread_map.json` 只是某個時間點的舊快照，回填時**刻意不**
 拿它更新 `thread-map-counts.json`——混進「現在」的失敗率代理只會誤導判讀。
 
+## 設定檔（頻道名稱／使用者真名）
+
+`sender_context` 帶的只有 Discord 的 `channel_id`／`sender_id`（數字 ID）和當下
+的 `display_name`（可能是暱稱、可能缺漏）。想在報表看到人看得懂的頻道名稱或
+真人姓名，複製 `config.example.json` 成 `config.json`（已加進 `.gitignore`，
+真人姓名不可進版控）填對照表，跑 `report.py` 時加 `--config config.json`：
+
+```json
+{
+  "channel_names": {"1528965074562191420": "cac-dev-team"},
+  "user_names": {"824092654060830770": "王小明"}
+}
+```
+
+`user_names` 的優先序是：設定檔對照 > `sender_context` 的 `display_name` >
+原始 `sender_id`，三種報表格式（text／md／html）都會套用，也都會列出「逐使用者
+任務數」明細（不只是人數彙總）。
+
 ## 跑測試
 
     python3 -m unittest discover -s tests -t . -v

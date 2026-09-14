@@ -291,6 +291,14 @@ def render(report):
           ("受 allowlist 限制，上界 %d 人" % report["allowlist_bounds"][bot])
           if report["allowlist_bounds"].get(bot) else "—"]
          for bot, users in sorted(report["active_users"].items())]))
+    parts.append(_table(
+        ["bot", "使用者", "任務數"],
+        [[bot, report_mod.user_label(sender_id, info["display_name"],
+                                     report.get("user_names") or {}),
+          info["tasks"]]
+         for bot, users in sorted(report["active_users"].items())
+         for sender_id, info in sorted(users.items(),
+                                       key=lambda kv: -kv[1]["tasks"])]))
 
     parts.append("<h2>各頻道使用量</h2>")
     parts.append(_table(

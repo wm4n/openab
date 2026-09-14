@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# 真實的設定檔會把 sender_id 對到真人姓名，不可進版控 —— 複製
+# config.example.json 成 config.json 在本機/節點上填，永遠不 commit。
+config.json

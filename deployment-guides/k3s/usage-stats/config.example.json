@@ -9,5 +9,8 @@
     "rick": 1,
     "morty": 1
   },
-  "pricebook": {}
+  "pricebook": {},
+  "user_names": {
+    "824092654060830770": "王小明"
+  }
 }

@@ -43,6 +43,7 @@ def report_fixture():
                                                "cron": 9}},
         "allowlist_bounds": {"rick": 1},
         "channel_names": {"1528965074562191420": "cac-dev-team"},
+        "user_names": {"824": "william chen"},
     }
 
 
