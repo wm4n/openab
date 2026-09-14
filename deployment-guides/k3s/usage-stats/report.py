@@ -111,6 +111,10 @@ def build_report(tasks, usages, config, since, until, collect_health,
         "friction": aggregate.friction_signals(tasks),
         "failure_proxy": aggregate.failure_proxy(thread_map_counts or {}, tasks),
         "by_channel": aggregate.tasks_by_channel(tasks),
+        "hourly_activity": aggregate.hourly_activity(tasks),
+        "weekday_activity": aggregate.weekday_activity(tasks),
+        "weekly_tasks": aggregate.weekly_task_counts(tasks),
+        "weekly_cost": aggregate.weekly_cost(usages),
         "allowlist_bounds": dict(config.get("allowlist_bounds") or {}),
         "channel_names": dict(config.get("channel_names") or {}),
         "user_names": dict(config.get("user_names") or {}),
@@ -263,6 +267,29 @@ def render_text(report):
                    % (channel_label(channel_id, report["channel_names"]),
                       counts["human"], counts["bot_relay"], counts["cron"]))
 
+    out.append("\n[尖峰時段]  真人任務按小時／星期幾分布（台北時間），只列有活動的時段")
+    for bot in sorted(set(report["hourly_activity"])
+                      | set(report["weekday_activity"])):
+        hours = report["hourly_activity"].get(bot, {})
+        weekdays = report["weekday_activity"].get(bot, {})
+        hour_str = ", ".join("%02d=%d" % (h, n)
+                             for h, n in sorted(hours.items()) if n)
+        weekday_str = ", ".join("%s=%d" % (d, n)
+                                for d, n in weekdays.items() if n)
+        out.append("  %-8s  小時 %s" % (bot, hour_str or "（無真人任務）"))
+        out.append("      星期 %s" % (weekday_str or "（無真人任務）"))
+
+    out.append("\n[週對週趨勢]  ISO 週（週一為週起始），任務數 / CLI 自算成本")
+    weeks = sorted(set(report["weekly_tasks"]) | set(report["weekly_cost"]))
+    for week in weeks:
+        bots = report["weekly_tasks"].get(week, {})
+        costs = report["weekly_cost"].get(week, {})
+        for bot in sorted(set(bots) | set(costs)):
+            human = bots.get(bot, {}).get("human", 0)
+            cli = costs.get(bot, {}).get("cli", 0.0)
+            out.append("  %-10s  %-8s  真人 %4d  CLI 自算 %.4f"
+                       % (week, bot, human, cli))
+
     out.append("\n[讀這份報表前必須知道]")
     for line in _caveat_lines(report):
         out.append("  - " + line.replace("**", ""))
@@ -386,6 +413,40 @@ def render_md(report):
                    % (bot, ("%.0f" % median) if median is not None else "n/a",
                       ("%.2f" % per) if per is not None else "n/a",
                       info["abandoned_sessions"]))
+
+    out.append("")
+    out.append("## 尖峰時段（真人任務，台北時間）")
+    out.append("")
+    out.append("只列有活動的時段；小時是 0-23，星期以「一」為週一。")
+    out.append("")
+    out.append("| bot | 小時分布 | 星期幾分布 |")
+    out.append("| --- | --- | --- |")
+    for bot in sorted(set(report["hourly_activity"])
+                      | set(report["weekday_activity"])):
+        hours = report["hourly_activity"].get(bot, {})
+        weekdays = report["weekday_activity"].get(bot, {})
+        hour_str = ", ".join("%02d=%d" % (h, n)
+                             for h, n in sorted(hours.items()) if n)
+        weekday_str = ", ".join("%s=%d" % (d, n)
+                                for d, n in weekdays.items() if n)
+        out.append("| %s | %s | %s |" % (bot, hour_str or "—", weekday_str or "—"))
+
+    out.append("")
+    out.append("## 週對週趨勢")
+    out.append("")
+    out.append("ISO 週（週一為週起始）。CLI 自算成本以外的來源不列——"
+               "訂閱制不是真金額。")
+    out.append("")
+    out.append("| 週 | bot | 真人任務 | CLI 自算成本 |")
+    out.append("| --- | --- | --- | --- |")
+    weeks = sorted(set(report["weekly_tasks"]) | set(report["weekly_cost"]))
+    for week in weeks:
+        bots = report["weekly_tasks"].get(week, {})
+        costs = report["weekly_cost"].get(week, {})
+        for bot in sorted(set(bots) | set(costs)):
+            human = bots.get(bot, {}).get("human", 0)
+            cli = costs.get(bot, {}).get("cli", 0.0)
+            out.append("| %s | %s | %d | %.4f |" % (week, bot, human, cli))
     return "\n".join(out) + "\n"
 
 

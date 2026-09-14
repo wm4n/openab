@@ -432,3 +432,97 @@ def tasks_by_channel(tasks):
         if source in bucket:
             bucket[source] += 1
     return out
+
+
+# --- 尖峰時段（只算真人任務） -----------------------------------------------
+
+_WEEKDAY_LABELS = ("一", "二", "三", "四", "五", "六", "日")
+
+
+def _taipei_moment(ts):
+    """occurred_at → 台北當地時間的 datetime，轉不了就回 None。"""
+    if not ts:
+        return None
+    from events import TAIPEI, _parse_iso
+    try:
+        return _parse_iso(ts).astimezone(TAIPEI)
+    except (ValueError, TypeError):
+        return None
+
+
+def hourly_activity(tasks):
+    """{bot: {hour(0-23): n}}，只算真人任務，台北當地時區。
+
+    尖峰時段問的是「人類什麼時候在用」：cron 的時間點是排程設定值不是
+    使用行為、bot 互呼跟隨真人任務發生，兩者混進來都會扭曲這個問題。
+    24 小時都在，缺的是真 0。
+    """
+    out = {}
+    for task in dedupe_tasks(tasks):
+        if task.get("source") != "human":
+            continue
+        moment = _taipei_moment(task.get("occurred_at"))
+        if moment is None:
+            continue
+        bucket = out.setdefault(task.get("bot"), dict.fromkeys(range(24), 0))
+        bucket[moment.hour] += 1
+    return out
+
+
+def weekday_activity(tasks):
+    """{bot: {weekday(一~日): n}}，只算真人任務，台北當地時區。
+
+    跟 hourly_activity 同一套排除規則。7 天都在，缺的是真 0。
+    """
+    out = {}
+    for task in dedupe_tasks(tasks):
+        if task.get("source") != "human":
+            continue
+        moment = _taipei_moment(task.get("occurred_at"))
+        if moment is None:
+            continue
+        label = _WEEKDAY_LABELS[moment.weekday()]
+        bucket = out.setdefault(task.get("bot"),
+                                dict.fromkeys(_WEEKDAY_LABELS, 0))
+        bucket[label] += 1
+    return out
+
+
+# --- 週對週趨勢 -------------------------------------------------------------
+
+def _week_key(day):
+    """'YYYY-MM-DD' → 'YYYY-Www'（ISO 週，週一為週起始）。"""
+    if day == _UNKNOWN_DAY:
+        return _UNKNOWN_DAY
+    import datetime as dt
+    iso = dt.date.fromisoformat(day).isocalendar()
+    return "%d-W%02d" % (iso[0], iso[1])
+
+
+def weekly_task_counts(tasks):
+    """{week: {bot: {human, bot_relay, cron}}}。
+
+    報表區間一拉長，逐日表格就看不出走勢，捲成 ISO 週才看得出成長或
+    衰退。重用 daily_task_counts（已去重），不重寫一次去重邏輯。
+    """
+    out = {}
+    for day, bots in daily_task_counts(tasks).items():
+        bucket = out.setdefault(_week_key(day), {})
+        for bot, counts in bots.items():
+            b = bucket.setdefault(bot, dict.fromkeys(SOURCES, 0))
+            for source in SOURCES:
+                b[source] += counts[source]
+    return out
+
+
+def weekly_cost(usages):
+    """{week: {bot: {cost_source: float}}}。同樣重用 daily_cost 已去重的結果。"""
+    out = {}
+    for day, bots in daily_cost(usages).items():
+        bucket = out.setdefault(_week_key(day), {})
+        for bot, sources in bots.items():
+            b = bucket.setdefault(bot, {"cli": 0.0, "pricebook": 0.0,
+                                        "subscription": 0.0, "unavailable": 0.0})
+            for source in b:
+                b[source] += sources[source]
+    return out

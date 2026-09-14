@@ -16,6 +16,8 @@ light mode 的 aqua 對比 2.74 < 3:1 拿到 WARN，規則要求以「可見標�
 """
 import html as html_mod
 
+import aggregate
+
 # 前三個 categorical slot（blue／orange／aqua）。深色是各自選過的色階，
 # 不是自動反轉。
 SERIES_LIGHT = ("#2a78d6", "#eb6834", "#1baf7a")
@@ -352,5 +354,41 @@ def render(report):
           info["sessions_with_output"],
           info["gap"] if info["gap"] is not None else "未知"]
          for bot, info in sorted(report["failure_proxy"].items())]))
+
+    hour_totals = dict.fromkeys(range(24), 0)
+    for hours in report["hourly_activity"].values():
+        for h, n in hours.items():
+            hour_totals[h] += n
+    weekday_totals = dict.fromkeys(aggregate._WEEKDAY_LABELS, 0)
+    for weekdays in report["weekday_activity"].values():
+        for d, n in weekdays.items():
+            weekday_totals[d] += n
+
+    parts.append("<h2>尖峰時段（真人任務，台北時間）</h2>")
+    parts.append(svg_hbars([("%02d:00" % h, hour_totals[h]) for h in range(24)],
+                           "各小時的真人任務數（跨全部 bot 加總）"))
+    parts.append(svg_hbars([(d, weekday_totals[d])
+                            for d in aggregate._WEEKDAY_LABELS],
+                           "各星期幾的真人任務數（跨全部 bot 加總）"))
+    parts.append(_table(
+        ["bot", "小時分布", "星期幾分布"],
+        [[bot,
+          ", ".join("%02d=%d" % (h, n) for h, n in sorted(
+              report["hourly_activity"].get(bot, {}).items()) if n) or "—",
+          ", ".join("%s=%d" % (d, n) for d, n in
+                    report["weekday_activity"].get(bot, {}).items() if n) or "—"]
+         for bot in sorted(set(report["hourly_activity"])
+                           | set(report["weekday_activity"]))]))
+
+    parts.append("<h2>週對週趨勢</h2>")
+    weekly_rows = []
+    for week in sorted(set(report["weekly_tasks"]) | set(report["weekly_cost"])):
+        bots = report["weekly_tasks"].get(week, {})
+        costs = report["weekly_cost"].get(week, {})
+        for bot in sorted(set(bots) | set(costs)):
+            human = bots.get(bot, {}).get("human", 0)
+            cli = costs.get(bot, {}).get("cli", 0.0)
+            weekly_rows.append([week, bot, human, "%.4f" % cli])
+    parts.append(_table(["週", "bot", "真人任務", "CLI 自算成本"], weekly_rows))
 
     return "\n".join(parts)
