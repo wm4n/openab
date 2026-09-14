@@ -137,8 +137,13 @@ TICKETS=$(printf '%s' "$RESPONSE" | node -e '
   const issues = (JSON.parse(body).issues) || [];
   for (const i of issues) console.log(i.key);
 ')
+# 每輪只認領＋觸發一張（Jira 優先，沒有才輪到 GitHub），找到就整支 script
+# 結束，避免同一時間派出多個開發工作互撞。沒撿到的候選票/issue 留給下一輪
+# （10 分鐘後）繼續掃。
+CLAIMED=""
+
 if [ -n "$TICKETS" ]; then
-  echo "$TICKETS" | while IFS= read -r TICKET_ID; do
+  while IFS= read -r TICKET_ID; do
     [ -z "$TICKET_ID" ] && continue
     BLOCK_STATE=$(check_jira_blocked "$TICKET_ID")
     if [ "$BLOCK_STATE" = "blocked" ]; then
@@ -154,79 +159,86 @@ if [ -n "$TICKETS" ]; then
       continue
     fi
     trigger_genie "jira-ticket ${TICKET_ID}"
-  done
+    CLAIMED=1
+    break
+  done <<< "$TICKETS"
 else
   echo "(無符合條件的 Jira 票)"
 fi
 
-echo "== GitHub：找貼 ${READY_LABEL} 的 issue =="
-IFS=',' read -ra REPO_LIST <<< "$GITHUB_AGENT_DEV_REPOS"
-for REPO_FULL_RAW in "${REPO_LIST[@]}"; do
-  REPO_FULL=$(echo "$REPO_FULL_RAW" | xargs)
-  [ -z "$REPO_FULL" ] && continue
-  OWNER="${REPO_FULL%%/*}"
-  if [ "$OWNER" = "wm4n" ]; then
-    GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_WM4N"
-  else
-    GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_CAC"
-  fi
-  if [ -z "$GH_TOKEN_FOR_REPO" ]; then
-    echo "ERROR: ${REPO_FULL} 需要 owner=${OWNER} 對應的 GitHub token，但環境變數未設定，跳過"
-    continue
-  fi
+if [ -z "$CLAIMED" ]; then
+  echo "== GitHub：找貼 ${READY_LABEL} 的 issue =="
+  IFS=',' read -ra REPO_LIST <<< "$GITHUB_AGENT_DEV_REPOS"
+  for REPO_FULL_RAW in "${REPO_LIST[@]}"; do
+    [ -n "$CLAIMED" ] && break
+    REPO_FULL=$(echo "$REPO_FULL_RAW" | xargs)
+    [ -z "$REPO_FULL" ] && continue
+    OWNER="${REPO_FULL%%/*}"
+    if [ "$OWNER" = "wm4n" ]; then
+      GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_WM4N"
+    else
+      GH_TOKEN_FOR_REPO="$GH_AGENT_DEV_TOKEN_CAC"
+    fi
+    if [ -z "$GH_TOKEN_FOR_REPO" ]; then
+      echo "ERROR: ${REPO_FULL} 需要 owner=${OWNER} 對應的 GitHub token，但環境變數未設定，跳過"
+      continue
+    fi
 
-  RESPONSE=$(curl -s -w '\n%{http_code}' \
-    -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    "https://api.github.com/repos/${REPO_FULL}/issues?labels=${READY_LABEL}&state=open")
-  NUMBERS=$(printf '%s' "$RESPONSE" | node -e '
-    const raw = require("fs").readFileSync(0, "utf8");
-    const nl = raw.lastIndexOf("\n");
-    const status = raw.slice(nl + 1).trim();
-    const body = raw.slice(0, nl);
-    if (status !== "200") {
-      console.error("ERROR: 列 issue 失敗（" + process.argv[1] + "，HTTP " + status + "）");
-      process.exit(0);
-    }
-    const items = JSON.parse(body) || [];
-    for (const i of items) {
-      if (i.pull_request) continue; // GitHub issues 端點連 PR 都算進去，排除
-      console.log(i.number);
-    }
-  ' "$REPO_FULL")
-  if [ -z "$NUMBERS" ]; then
-    echo "(${REPO_FULL} 無符合條件的 issue)"
-    continue
-  fi
-  echo "$NUMBERS" | while IFS= read -r ISSUE_NUMBER; do
-    [ -z "$ISSUE_NUMBER" ] && continue
-    BLOCK_STATE=$(check_github_blocked "$REPO_FULL" "$ISSUE_NUMBER" "$GH_TOKEN_FOR_REPO")
-    if [ "$BLOCK_STATE" = "blocked" ]; then
-      echo "(${REPO_FULL}#${ISSUE_NUMBER} 仍被其他 issue block 住，本輪跳過)"
-      continue
-    fi
-    # 先加 agent-dev-active（idempotent，重試安全），成功後才移除
-    # ready-for-agent-dev——順序反過來的話，萬一移除成功但新增失敗，這張
-    # issue 會兩個 label 都沒有，下一輪永遠撿不回來。
-    ADD_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+    RESPONSE=$(curl -s -w '\n%{http_code}' \
       -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
       -H "Accept: application/vnd.github+json" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
-      -X POST "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/labels" \
-      -d '{"labels":["agent-dev-active"]}')
-    if [ "$ADD_STATUS" != "200" ]; then
-      echo "ERROR: 認領 ${REPO_FULL}#${ISSUE_NUMBER} 失敗（加 label HTTP ${ADD_STATUS}），跳過，下一輪重試"
+      "https://api.github.com/repos/${REPO_FULL}/issues?labels=${READY_LABEL}&state=open")
+    NUMBERS=$(printf '%s' "$RESPONSE" | node -e '
+      const raw = require("fs").readFileSync(0, "utf8");
+      const nl = raw.lastIndexOf("\n");
+      const status = raw.slice(nl + 1).trim();
+      const body = raw.slice(0, nl);
+      if (status !== "200") {
+        console.error("ERROR: 列 issue 失敗（" + process.argv[1] + "，HTTP " + status + "）");
+        process.exit(0);
+      }
+      const items = JSON.parse(body) || [];
+      for (const i of items) {
+        if (i.pull_request) continue; // GitHub issues 端點連 PR 都算進去，排除
+        console.log(i.number);
+      }
+    ' "$REPO_FULL")
+    if [ -z "$NUMBERS" ]; then
+      echo "(${REPO_FULL} 無符合條件的 issue)"
       continue
     fi
-    REMOVE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
-      -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
-      -H "Accept: application/vnd.github+json" \
-      -H "X-GitHub-Api-Version: 2022-11-28" \
-      -X DELETE "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/labels/${READY_LABEL}")
-    if [ "$REMOVE_STATUS" != "200" ]; then
-      echo "ERROR: 移除 ${REPO_FULL}#${ISSUE_NUMBER} 的 ${READY_LABEL} 失敗（HTTP ${REMOVE_STATUS}），下一輪會自動補做"
-    fi
-    trigger_genie "github-issue ${REPO_FULL}#${ISSUE_NUMBER}"
+    while IFS= read -r ISSUE_NUMBER; do
+      [ -z "$ISSUE_NUMBER" ] && continue
+      BLOCK_STATE=$(check_github_blocked "$REPO_FULL" "$ISSUE_NUMBER" "$GH_TOKEN_FOR_REPO")
+      if [ "$BLOCK_STATE" = "blocked" ]; then
+        echo "(${REPO_FULL}#${ISSUE_NUMBER} 仍被其他 issue block 住，本輪跳過)"
+        continue
+      fi
+      # 先加 agent-dev-active（idempotent，重試安全），成功後才移除
+      # ready-for-agent-dev——順序反過來的話，萬一移除成功但新增失敗，這張
+      # issue 會兩個 label 都沒有，下一輪永遠撿不回來。
+      ADD_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        -X POST "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/labels" \
+        -d '{"labels":["agent-dev-active"]}')
+      if [ "$ADD_STATUS" != "200" ]; then
+        echo "ERROR: 認領 ${REPO_FULL}#${ISSUE_NUMBER} 失敗（加 label HTTP ${ADD_STATUS}），跳過，下一輪重試"
+        continue
+      fi
+      REMOVE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        -X DELETE "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/labels/${READY_LABEL}")
+      if [ "$REMOVE_STATUS" != "200" ]; then
+        echo "ERROR: 移除 ${REPO_FULL}#${ISSUE_NUMBER} 的 ${READY_LABEL} 失敗（HTTP ${REMOVE_STATUS}），下一輪會自動補做"
+      fi
+      trigger_genie "github-issue ${REPO_FULL}#${ISSUE_NUMBER}"
+      CLAIMED=1
+      break
+    done <<< "$NUMBERS"
   done
-done
+fi

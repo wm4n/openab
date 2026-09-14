@@ -658,6 +658,12 @@ Jira 票或 GitHub issue 貼上 `ready-for-agent-dev` label 後，一個獨立�
 直接進全自動開發（跳過人類確認閘門）。跟 `jira-grill` 是完全獨立的兩條
 poller/label 機制，互不影響。
 
+⚠️ **2026-09-14 改為只在離峰時段跑、每輪限額一張**：`schedule` 改成
+`*/10 21-23,0-6 * * *`（晚上 9 點到隔天 6 點多，一樣 10 分鐘一次，白天
+不跑），且 `poller.sh` 改成每輪只認領＋觸發一張票/issue（Jira 優先，沒有
+才輪到 GitHub，找到第一個沒被 block 的就 `break`）——避免同一時間派出
+多個 Genie 開發工作互撞。沒撿到的候選留給下一輪繼續掃。
+
 **1. Skill 已經隨 `solo-bot-skills` plugin 一起裝好，只需要更新版本**
 （Genie 本來就裝了這個 plugin，這次是內容更新到 1.1.0，不用額外
 `plugin install`）：
