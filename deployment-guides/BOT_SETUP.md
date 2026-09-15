@@ -761,6 +761,51 @@ kubectl logs -n cac job/agent-dev-poller-manual-test -f
 沒有逾時自動復原，Genie pod 中途被殺需要人類手動把 label 改回
 `ready-for-agent-dev`。
 
+### K2d — Genie：Jenkins 存取（2026-09-15 新增，僅基礎環境變數）
+
+> 目的：讓 genie 之後能查詢/觸發 Jenkins job，作為 `docs/superpowers/specs/2026-07-12-bot-build-acceptance-capability-design.md`
+> 描述的 build-acceptance 能力的前置準備。**這次只接線基礎存取（K8s Secret
+> + secretEnv），尚未接上任何正式流程/skill**——genie 目前只是「有辦法打
+> Jenkins API」，不代表已經有自動驗收 pipeline。
+
+**1. Jenkins 端**：已建立 genie 專用帳號並開通存取權限，用該帳號登入
+Jenkins → 使用者頭像 → Configure → **API Token** → Add new Token 產生一把
+（優先用 API Token，不用登入密碼——可單獨在 Jenkins 撤銷，不動到帳號本身，
+跟本 runbook 對 GitHub/Jira/Figma 憑證的處理原則一致）。
+
+**2. 建 `jenkins-genie` 這個 K8s Secret**（在能連到 k3s 的機器上執行；
+憑證不要貼進 Discord 或任何對話記錄）：
+
+```bash
+kubectl create secret generic jenkins-genie \
+  --from-literal=JENKINS_URL=<jenkins base url> \
+  --from-literal=JENKINS_USER=<帳號> \
+  --from-literal=JENKINS_TOKEN=<API Token> \
+  -n cac
+```
+
+**3. `values-openab-claude.yaml` 的 genie `secretEnv` 已補上對應三筆**
+（`JENKINS_URL`/`JENKINS_USER`/`JENKINS_TOKEN`，同一 K8s Secret，比照
+`FIGMA_TOKEN` 那次的單一服務帳號模式）。`helm upgrade` 後才會生效——只會
+重啟 genie 的 pod：
+
+```bash
+helm upgrade openab-claude ../../charts/openab -n cac \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml
+```
+
+**4. 驗證**：
+
+```bash
+kubectl exec deployment/openab-claude-genie -n cac -- env | grep JENKINS
+kubectl exec deployment/openab-claude-genie -n cac -- \
+  curl -su "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/api/json"
+```
+
+**5. `Genie-CLAUDE_v2.md` 已補上「4c. Jenkins 存取」小節**，說明這三個
+環境變數的用法與「除非人類明確要求，不自行發起 build」的限制；套用後記得
+到 Discord 對 genie 開一條新 thread 才會重讀（見 Part N）。
+
 ### K3. Rick(Claude@OrbStack Mac mini) — openspec 開發
 
 **角色：** 收到 Morty 的 spec → openspec propose→apply→archive → 推 PR → @Morty + @Summer。

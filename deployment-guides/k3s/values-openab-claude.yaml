@@ -190,6 +190,23 @@ agents:
       # figma-fetch skill 用（2026-09-09 新增），供 jira-grill 讀 Jira 票裡
       # 貼的 Figma 連結內容。
       - { name: FIGMA_TOKEN, secretName: figma-token, secretKey: FIGMA_TOKEN }
+      # Jenkins 存取（2026-09-15 新增，只給 genie）：專用帳號 + API Token
+      # （非登入密碼，可單獨撤銷）。K8s Secret 需先在 VM 上手動建立：
+      #   kubectl create secret generic jenkins-genie \
+      #     --from-literal=JENKINS_URL=<jenkins base url> \
+      #     --from-literal=JENKINS_USER=<帳號> \
+      #     --from-literal=JENKINS_TOKEN=<API Token> -n cac
+      - { name: JENKINS_URL, secretName: jenkins-genie, secretKey: JENKINS_URL }
+      - {
+          name: JENKINS_USER,
+          secretName: jenkins-genie,
+          secretKey: JENKINS_USER,
+        }
+      - {
+          name: JENKINS_TOKEN,
+          secretName: jenkins-genie,
+          secretKey: JENKINS_TOKEN,
+        }
     cron:
       usercronEnabled: true
       usercronPath: "cronjob.toml"
