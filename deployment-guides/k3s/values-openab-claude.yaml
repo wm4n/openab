@@ -1,4 +1,7 @@
-# openab-claude release：Rick + Morty（Claude 家族，維持預設 seccomp RuntimeDefault）
+# openab-claude release：Genie（Claude 家族，維持預設 seccomp RuntimeDefault）
+# 2026-09-15：Rick/Morty 已搬回 Mac(OrbStack) 自建 image，從這個 release 移除（不是
+# helm uninstall，是拿掉 agents.rick/agents.morty 區塊後 helm upgrade，genie 不受影響）。
+# 見 deployment-guides/ORBSTACK-ROLLBACK.md。
 #
 # 用法：
 #   helm install openab-claude oci://ghcr.io/openabdev/charts/openab --version 0.9.0-beta.1 -n cac \
@@ -15,8 +18,6 @@
 # ⚠️ 所有雪花 ID（channel/user/role/bot）一律用字串（引號）；chart 對浮點精度損毀有防呆會 fail。
 # 頻道：cac-dev-team(1528965074562191420)、cac-notify(1528965173761802420)，兩個都要回應。
 # allowedUsers 留空 = 允許頻道內任何人 @（共用團隊頻道，不限定單一使用者）。
-# 角色（Part M，CAC k3s 專用，與舊 Mac mini 部署的 Builder/Reviewer ID 不同）：
-#   CAC-Analyst=1528997714879320134　CAC-Builder=1528997914049777764　CAC-Reviewer=1528997980714303640
 
 image:
   repository: ghcr.io/openabdev/openab-claude
@@ -26,107 +27,6 @@ agents:
   # 否則會被 Helm 一起合併進來、多裝出一個沒設定好的 kiro-cli pod。
   kiro:
     enabled: false
-
-  rick:
-    image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
-    imagePullSecrets:
-      - name: ghcr-104corp
-    command: claude-agent-acp
-    args: []
-    workingDir: /home/node # HOME 跟著它；PVC 掛在此
-    # openspec 裝在 PVC（npm prefix=/home/node/.npm-global，避開唯讀根碟）；
-    # PATH 加在最前面，讓 agent 與其 subprocess 都找得到 openspec 指令。
-    # HANDOFF_* 給 feature-development skill 用：@mention 目標改用環境變數，
-    # 換 workspace 只要改這裡的值，不用動 skill 內容（bot user ID，同下方 trustedBotIds）。
-    env:
-      PATH: "/home/node/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-      HANDOFF_REVIEWER_MORTY: "<@1521431781641818202>"
-      HANDOFF_REVIEWER_SUMMER: "<@1522253638465093752>"
-    discord:
-      enabled: true
-      allowedChannels: ["1528965074562191420", "1528965173761802420", "1522271475552354394", "1526283579309690990"] # cac-dev-team, cac-notify, dev-bot(william workspace), bot-notify(william workspace)
-      allowedUsers: ["824092654060830770"] # 空=允許頻道內任何人
-      allowBotMessages: "mentions" # bot 互呼（Part K）
-      # jira-grill-poller（K8s CronJob，見 deployment-guides/k3s/jira-grill-poller/）
-      # 判斷需要處理某張票時，用這個 bot 帳號 @mention Rick 觸發，取代舊的
-      # cron 輪詢機制。
-      trustedBotIds: ["1521431781641818202", "1522253638465093752", "1541617131442147438"] # Morty, Summer, jira-grill-trigger
-      allowedRoleIds: ["1528997914049777764"] # CAC-Builder（Part M）
-    # Rick 的 JIRA 認證（jira-grill skill 用）：複用既有 morty-jira K8s
-    # Secret，不新建。secretEnv 會 valueFrom.secretKeyRef 注入，並自動把
-    # 這些 key 加進 config 的 inherit_env。
-    secretEnv:
-      - { name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN }
-      - {
-          name: JIRA_BASE_URL,
-          secretName: morty-jira,
-          secretKey: JIRA_BASE_URL,
-        }
-      - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
-      # figma-fetch skill 用（2026-09-09 新增），供 jira-grill 讀 Jira 票裡
-      # 貼的 Figma 連結內容。
-      - { name: FIGMA_TOKEN, secretName: figma-token, secretKey: FIGMA_TOKEN }
-    # usercron：cronjob.toml 熱重載排程（openab-schedule skill 用）；
-    # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
-    cron:
-      usercronEnabled: true
-      usercronPath: "cronjob.toml"
-    pool:
-      maxSessions: 5
-      sessionTtlHours: 24
-      # 單輪 prompt 可能跑很久；預設 1800s 撞過(Agent exceeded hard timeout)，拉到 4hr。
-      promptHardTimeoutSecs: 14400
-    reactions:
-      toolDisplay: "compact"
-    persistence:
-      enabled: true
-      storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
-      size: 30Gi
-
-  morty:
-    image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
-    imagePullSecrets:
-      - name: ghcr-104corp
-    command: claude-agent-acp
-    args: []
-    workingDir: /home/node
-    # HANDOFF_BUILDER 給 requirement-analysis/change-review skill 用：@mention Rick
-    # 改用環境變數，換 workspace 只要改這裡的值（bot user ID，同下方 trustedBotIds）。
-    env:
-      HANDOFF_BUILDER: "<@1519868630064562278>"
-    discord:
-      enabled: true
-      allowedChannels: ["1528965074562191420", "1528965173761802420", "1522271475552354394", "1526283579309690990"] # follow Rick
-      allowedUsers: ["824092654060830770"] # 空=允許頻道內任何人
-      allowBotMessages: "mentions"
-      trustedBotIds: ["1519868630064562278", "1522253638465093752"] # Rick, Summer
-      allowedRoleIds: ["1528997714879320134", "1528997980714303640"] # CAC-Analyst, CAC-Reviewer（Part M）
-    # Morty 的 JIRA 憑證：先在 VM 上 kubectl create secret generic morty-jira（見 K3S.md）。
-    # secretEnv 會 valueFrom.secretKeyRef 注入，並自動把這些 key 加進 config 的 inherit_env。
-    secretEnv:
-      - { name: JIRA_TOKEN, secretName: morty-jira, secretKey: JIRA_TOKEN }
-      - {
-          name: JIRA_BASE_URL,
-          secretName: morty-jira,
-          secretKey: JIRA_BASE_URL,
-        }
-      - { name: JIRA_EMAIL, secretName: morty-jira, secretKey: JIRA_EMAIL }
-    # usercron：cronjob.toml 熱重載排程（openab-schedule skill 用）；
-    # 路徑相對 $HOME/.openab/，落在下面的 PVC 上，pod 重啟不會丟。
-    cron:
-      usercronEnabled: true
-      usercronPath: "cronjob.toml"
-    pool:
-      maxSessions: 5
-      sessionTtlHours: 24
-      # 單輪 prompt 可能跑很久；預設 1800s 撞過(Agent exceeded hard timeout)，拉到 4hr。
-      promptHardTimeoutSecs: 14400
-    reactions:
-      toolDisplay: "compact"
-    persistence:
-      enabled: true
-      storageClass: cac-local # 靜態 PV，落在 /data（NFS，跟 mis-ai 同一顆碟），不進根碟 local-path
-      size: 30Gi
 
   genie:
     image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
