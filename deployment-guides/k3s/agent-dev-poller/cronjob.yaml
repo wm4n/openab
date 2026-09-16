@@ -271,7 +271,7 @@ spec:
             - name: ghcr-104corp
           containers:
             - name: poller
-              image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
+              image: "ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273"
               command: ["/bin/bash", "/scripts/poller.sh"]
               env:
                 - name: JIRA_TOKEN

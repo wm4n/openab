@@ -29,7 +29,7 @@ agents:
     enabled: false
 
   genie:
-    image: "ghcr.io/104corp/openab:0.9.0-claude-cli2.1.220"
+    image: "ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273"
     imagePullSecrets:
       - name: ghcr-104corp
     command: claude-agent-acp
