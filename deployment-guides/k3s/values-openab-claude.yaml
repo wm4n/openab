@@ -3,6 +3,14 @@
 # helm uninstall，是拿掉 agents.rick/agents.morty 區塊後 helm upgrade，genie 不受影響）。
 # 見 deployment-guides/ORBSTACK-ROLLBACK.md。
 #
+# ⚠️ 這個 release 實際上還載著 kimi/walle/eve（opencode）三隻，它們在各自的
+#    values-openab-{kimi,walle,eve}.yaml overlay 裡。**每次 helm upgrade 都要把全部
+#    -f 帶齊**，漏掉哪個 overlay 那隻就會從合併結果消失（Helm 是深度合併，少給檔案
+#    ＝少那段設定）。完整指令見 deployment-guides/k3s/README.md「現行 upgrade 指令」。
+# ⚠️ 反過來，要移除某個 agent 時，**每一個 -f 檔案**裡的該區塊都要刪——只改這裡、
+#    忘了 values-secret-claude.yaml 裡同名的 agents.<name>（存 botToken）的話，它會
+#    在合併結果裡復活（2026-09-15 移除 rick/morty 時實際踩過）。
+#
 # 用法：
 #   helm install openab-claude oci://ghcr.io/openabdev/charts/openab --version 0.9.0-beta.1 -n cac \
 #     -f values-openab-claude.yaml -f values-secret-claude.yaml

@@ -3,7 +3,7 @@
 # 這是一份「加一顆 agent」的 values overlay（只含 agents.kimi 區塊），兩種用法擇一：
 #
 # (A) 併進既有 openab-claude release（推薦，照 K3S.md「未來加 agent」流程）
-#     —— opencode 只需 RuntimeDefault seccomp，與 Rick/Morty 同 release 無虞：
+#     —— opencode 只需 RuntimeDefault seccomp，與 genie 同 release 無虞：
 #
 #   helm upgrade openab-claude ../../charts/openab -n cac \
 #     -f values-openab-claude.yaml   -f values-secret-claude.yaml \
@@ -18,11 +18,11 @@
 #    那筆的 CHART 版本再帶入。不指定會抓 registry 當下預設 tag，可能拉到較新、
 #    有 breaking change 的 chart（詳見 values-openab-codex.yaml 開頭的說明）。
 # ⚠️ 不要在這裡設 top-level `image:` —— 併進 openab-claude release 時會蓋掉
-#    Rick/Morty 的映像。只用 agents.kimi.image。
+#    同 release 其他 agent（genie/walle/eve）的映像。只用 agents.kimi.image。
 # ⚠️ Discord token 由 -f values-secret-kimi.yaml 疊加，不要寫在這裡。
 
 agents:
-  # 併進既有 release：這行與 -f values-openab-claude.yaml 疊加，不影響 Rick/Morty。
+  # 併進既有 release：這行與 -f values-openab-claude.yaml 疊加，不影響 genie。
   # 獨立 release：chart 內建的 kiro 範例 agent 必須明確關掉，否則會多裝一顆。
   kiro:
     enabled: false
@@ -43,7 +43,7 @@ agents:
       allowedRoleIds: []              # 要團隊 @mention 觸發再填角色 ID（Part M）
 
     reactions:
-      toolDisplay: "compact"          # 跟 Rick/Morty/Genie 一致；full=每個 tool 一行，none=全隱藏
+      toolDisplay: "compact"          # 跟其他 bot 一致；full=每個 tool 一行，none=全隱藏
 
     # --- OpenRouter API key：兩種給法擇一 ---
     #
@@ -64,7 +64,7 @@ agents:
 
     inheritEnv: ["GH_TOKEN"]          # GitHub 用；OpenRouter key 不放這
 
-    # ⚠️ 不設 agentsMd —— context 檔（/home/node/AGENTS.md）跟 Rick/Morty/Summer/Genie
+    # ⚠️ 不設 agentsMd —— context 檔（/home/node/AGENTS.md）跟其他 bot
     #    一樣由 update-context.sh 寫進 PVC（來源 deployment-guides/Kimi-AGENTS_v2.md）。
     #    設了 agentsMd 會掛成唯讀 ConfigMap，update-context.sh 的 `cat > AGENTS.md`
     #    會 Read-only file system 而 set -e 中止。

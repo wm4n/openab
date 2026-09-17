@@ -1,5 +1,10 @@
 # openab-codex release：Summer（Codex 家族）
 #
+# 🕘 2026-09-15：Summer 已搬回 Mac mini OrbStack（自建 image），這個 release 整個
+#    `helm uninstall`、PVC 也已刪除——**目前沒有對應的線上部署**。本檔保留當「日後
+#    要再開一個 Codex 家族 release」的範本（seccomp Unconfined 那套寫法還會用到）。
+#    Summer 現行設定見 deployment-guides/ORBSTACK-ROLLBACK.md。
+#
 # 用法：
 #   helm install openab-codex oci://ghcr.io/openabdev/charts/openab --version <目前 deployed 的版本> -n cac \
 #     -f values-openab-codex.yaml -f values-secret-codex.yaml
