@@ -1,0 +1,80 @@
+# grill-poller-rick：Rick 的 grill 逼問觸發器（只有 GitHub 來源）
+#
+# 設計依據：docs/superpowers/specs/2026-09-18-split-genie-rick-pollers-design.md
+#
+# ⚠️ 這份 yaml **不含 ConfigMap**，跟舊的 jira-grill-poller/cronjob.yaml 不同。
+#    舊檔把整支 script 內嵌在 yaml 裡、同時又有一份 poller.sh，兩份會漂移。
+#    這裡改成單一事實來源：script 只存在 poller.sh，ConfigMap 由指令產生。
+#
+#    部署前先建 ConfigMap（rick 與 genie 兩個實例共用同一份）：
+#      kubectl create configmap grill-poller-script -n cac --from-file=poller.sh
+#    改過 poller.sh 之後要重建才會生效：
+#      kubectl create configmap grill-poller-script -n cac --from-file=poller.sh \
+#        --dry-run=client -o yaml | kubectl apply -f -
+#
+# ⚠️ Secret 名稱裡的 `agent-dev` / `jira-grill` 都是沿革，實際為四支 poller 共用。
+#    改名要動所有引用處且對運行中的實例有風險，收益不值得（見 spec）。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grill-poller-rick
+  namespace: cac
+spec:
+  # 全天每 10 分鐘。逼問是對話性質，PM 回覆後要儘快接上；壓到離峰會讓一輪
+  # 問答拖到隔天。（agent-dev 才需要離峰，那個會真的開始寫 code。）
+  schedule: "*/10 * * * *"
+  # 初次部署用 true，手動 Job 驗證通過後 `kubectl patch` 取消，並把這裡改成
+  # false 一併 commit——否則之後任何人重新 apply 都會靜默把它停掉。
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-104corp
+          containers:
+            - name: poller
+              # 只需要 bash / curl / node，沿用 bot 用的同一個映像即可。
+              image: "ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273"
+              command: ["/bin/bash", "/scripts/poller.sh"]
+              env:
+                - name: TARGET_BOT_ID
+                  value: "1519868630064562278" # Rick
+                - name: TARGET_BOT_NAME
+                  value: "Rick" # 留言簽名比對用：「— By Rick (jira-grill)」
+                - name: TRIGGER_CHANNEL
+                  value: "1526283579309690990" # bot-notify（william workspace）
+                - name: TRIGGER_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: jira-grill-trigger-discord
+                      key: token
+                # Rick 的產品只有 GitHub 管理——JIRA_PROJECTS 刻意不設，
+                # poller 會完全跳過 Jira 區段，也不會要求任何 JIRA_* 變數。
+                - name: GITHUB_REPOS
+                  value: "wm4n/chainbreak,wm4n/hangman"
+                - name: GH_TOKEN_WM4N
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-agent-dev-poller-wm4n
+                      key: token
+                # 目前白名單全是 wm4n owner，這把先備著：之後加 104corp 的 repo
+                # 只要改上面的白名單，不用動 Secret 或這份 yaml。
+                - name: GH_TOKEN_CAC
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-agent-dev-poller-cac
+                      key: token
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+          volumes:
+            - name: script
+              configMap:
+                name: grill-poller-script
+                defaultMode: 0755

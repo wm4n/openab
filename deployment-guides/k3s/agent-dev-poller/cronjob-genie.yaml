@@ -1,0 +1,83 @@
+# agent-dev-poller-genie：Genie 的全自動開發觸發器（Jira + GitHub 雙來源）
+#
+# 設計依據：docs/superpowers/specs/2026-09-18-split-genie-rick-pollers-design.md
+# ConfigMap 建立方式與 `-v2` 命名的理由見 cronjob-rick.yaml 檔頭（兩個新實例
+# 共用同一份 agent-dev-poller-script-v2）。
+#
+# ⚠️⚠️ **這份是 Phase 3 最後一步才部署的，而且不能跟舊的 cronjob.yaml 並存。**
+#    兩者都會掃同一份 Jira/GitHub 白名單、都會 @genie，並存會造成雙重觸發
+#    （兩個 Genie session 同時開發同一張票）。正確順序：
+#      1. kubectl patch cronjob agent-dev-poller -n cac -p '{"spec":{"suspend":true}}'
+#      2. kubectl apply -f cronjob-genie.yaml
+#      3. kubectl create job --from=cronjob/agent-dev-poller-genie <名稱> -n cac  # 驗證
+#      4. kubectl delete cronjob agent-dev-poller -n cac
+#    退路：刪掉本實例、把舊的 suspend 改回 false，數秒可逆。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent-dev-poller-genie
+  namespace: cac
+spec:
+  schedule: "*/10 21-23,0-6 * * *" # 離峰；理由同 cronjob-rick.yaml
+  # 部署當下就要能跑（Phase 3 第 3 步驗證），但仍先 suspend、驗證過再放行。
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-104corp
+          containers:
+            - name: poller
+              image: "ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273"
+              command: ["/bin/bash", "/scripts/poller.sh"]
+              env:
+                - name: TARGET_BOT_ID
+                  value: "1530106874613989406" # cac-genie
+                - name: TARGET_BOT_NAME
+                  value: "Genie" # 只用於 log 可讀性
+                - name: TRIGGER_CHANNEL
+                  value: "1528965173761802420" # cac-notify
+                - name: TRIGGER_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: jira-grill-trigger-discord
+                      key: token
+                # 沿用舊實例的四個專案，不變更行為。
+                - name: JIRA_PROJECTS
+                  value: "CACJOB,CACVIP,CACATS,ITGD"
+                - name: JIRA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: morty-jira
+                      key: JIRA_TOKEN
+                - name: JIRA_EMAIL
+                  valueFrom:
+                    secretKeyRef:
+                      name: morty-jira
+                      key: JIRA_EMAIL
+                - name: JIRA_BASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: morty-jira
+                      key: JIRA_BASE_URL
+                - name: GITHUB_REPOS
+                  value: "104corp/interview-ai-summary"
+                - name: GH_TOKEN_CAC
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-agent-dev-poller-cac
+                      key: token
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+          volumes:
+            - name: script
+              configMap:
+                name: agent-dev-poller-script-v2 # 見 cronjob-rick.yaml 檔頭
+                defaultMode: 0755

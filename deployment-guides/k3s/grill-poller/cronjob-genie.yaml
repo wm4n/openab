@@ -1,0 +1,79 @@
+# grill-poller-genie：Genie 的 grill 逼問觸發器（Jira + GitHub 雙來源）
+#
+# 設計依據：docs/superpowers/specs/2026-09-18-split-genie-rick-pollers-design.md
+# ConfigMap 建立方式與 Secret 命名沿革見 cronjob-rick.yaml 檔頭（兩個實例共用
+# 同一份 grill-poller-script）。
+#
+# 取代舊的單一實例 jira-grill-poller（那支是純 Jira、目標 bot 二選一），
+# 兩個新實例都上線並驗證後再刪除舊的。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grill-poller-genie
+  namespace: cac
+spec:
+  schedule: "*/10 * * * *" # 全天；理由同 cronjob-rick.yaml
+  # 初次部署用 true，驗證通過後 patch 取消並把這裡改成 false 一併 commit。
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-104corp
+          containers:
+            - name: poller
+              image: "ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273"
+              command: ["/bin/bash", "/scripts/poller.sh"]
+              env:
+                - name: TARGET_BOT_ID
+                  value: "1530106874613989406" # cac-genie
+                - name: TARGET_BOT_NAME
+                  value: "Genie" # 留言簽名比對用：「— By Genie (jira-grill)」
+                - name: TRIGGER_CHANNEL
+                  value: "1528965173761802420" # cac-notify
+                - name: TRIGGER_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: jira-grill-trigger-discord
+                      key: token
+                # ⚠️ 含 ITGD：舊的 jira-grill-poller 只有前三個，而 agent-dev-poller
+                # 有四個。複審時確認那是漏的，本次對齊——這是整個重構裡唯一刻意
+                # 改變現行行為的地方（ITGD 的票從此也會被 grill 掃到）。
+                - name: JIRA_PROJECTS
+                  value: "CACJOB,CACVIP,CACATS,ITGD"
+                - name: JIRA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: morty-jira
+                      key: JIRA_TOKEN
+                - name: JIRA_EMAIL
+                  valueFrom:
+                    secretKeyRef:
+                      name: morty-jira
+                      key: JIRA_EMAIL
+                - name: JIRA_BASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: morty-jira
+                      key: JIRA_BASE_URL
+                - name: GITHUB_REPOS
+                  value: "104corp/104cac-product-registry,104corp/interview-ai-summary"
+                - name: GH_TOKEN_CAC
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-agent-dev-poller-cac
+                      key: token
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+          volumes:
+            - name: script
+              configMap:
+                name: grill-poller-script
+                defaultMode: 0755

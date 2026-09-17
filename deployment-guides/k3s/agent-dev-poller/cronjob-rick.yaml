@@ -1,0 +1,82 @@
+# agent-dev-poller-rick：Rick 的全自動開發觸發器（只有 GitHub 來源）
+#
+# 設計依據：docs/superpowers/specs/2026-09-18-split-genie-rick-pollers-design.md
+#
+# ⚠️ 這份 yaml **不含 ConfigMap**（與同目錄舊的 cronjob.yaml 不同，那份把整支
+#    script 內嵌進去、跟獨立的 poller.sh 會漂移）。script 的單一事實來源是
+#    poller.sh，ConfigMap 由指令產生：
+#      kubectl create configmap agent-dev-poller-script-v2 -n cac --from-file=poller.sh
+#    改過 poller.sh 之後要重建才生效：
+#      kubectl create configmap agent-dev-poller-script-v2 -n cac --from-file=poller.sh \
+#        --dry-run=client -o yaml | kubectl apply -f -
+#
+# ⚠️⚠️ **ConfigMap 名稱刻意加 `-v2`，不可拿掉。** 舊的 cronjob.yaml 內嵌了一個
+#    叫 `agent-dev-poller-script` 的 ConfigMap，那是正在服務 genie 的那份。
+#    新舊 script 的 env 契約不相容（新版要求 TARGET_BOT_ID 等變數，舊 CronJob
+#    沒有設），**若沿用同名去重建，genie 的實例下一輪就會因缺變數直接 abort**
+#    ——在還沒要動它的 Phase 3 第一步就打爆它。用不同名稱讓新舊完全隔離。
+#    genie 切換完、舊 cronjob.yaml 刪掉之後，`-v2` 就只是無害的歷史包袱
+#    （要清掉的話得同時改兩份 yaml 並重建 ConfigMap，非必要）。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent-dev-poller-rick
+  namespace: cac
+spec:
+  # 只在晚上 9 點到隔天 6 點多這段離峰時間跑。這支會讓 bot 真的開始寫 code、
+  # 開 PR，白天跑會跟人工開發撞車。（grill 才是全天，那個只是對話。）
+  schedule: "*/10 21-23,0-6 * * *"
+  # 初次部署用 true，手動 Job 驗證通過後 patch 取消，並把這裡改成 false 一併
+  # commit——否則之後任何人重新 apply 都會靜默把它停掉。
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-104corp
+          containers:
+            - name: poller
+              image: "ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273"
+              command: ["/bin/bash", "/scripts/poller.sh"]
+              env:
+                - name: TARGET_BOT_ID
+                  value: "1519868630064562278" # Rick
+                - name: TARGET_BOT_NAME
+                  value: "Rick" # 只用於 log 可讀性（四支 poller 的 log 要分得出來）
+                - name: TRIGGER_CHANNEL
+                  value: "1526283579309690990" # bot-notify（william workspace）
+                - name: TRIGGER_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: jira-grill-trigger-discord
+                      key: token
+                # Rick 的產品只有 GitHub 管理——JIRA_PROJECTS 刻意不設，poller
+                # 會完全跳過 Jira 區段，也不會要求任何 JIRA_* 變數。
+                - name: GITHUB_REPOS
+                  value: "wm4n/chainbreak,wm4n/hangman"
+                - name: GH_TOKEN_WM4N
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-agent-dev-poller-wm4n
+                      key: token
+                # 白名單目前全是 wm4n owner，這把先備著：之後加 104corp 的 repo
+                # 只要改上面的白名單，不用動 Secret 或這份 yaml。
+                - name: GH_TOKEN_CAC
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-agent-dev-poller-cac
+                      key: token
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+          volumes:
+            - name: script
+              configMap:
+                name: agent-dev-poller-script-v2 # 見檔頭：名稱不可跟舊的相同
+                defaultMode: 0755

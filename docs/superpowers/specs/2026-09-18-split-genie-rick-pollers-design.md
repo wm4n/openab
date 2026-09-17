@@ -214,6 +214,16 @@ issue 貼一則留言即可。
 1. 腳本參數化（移除寫死的 `GENIE_DISCORD_USER_ID`／`trigger_genie()`）
 2. 部署 `agent-dev-poller-rick`（**全新實例，完全不動 genie 的舊實例**）→ 手動
    觸發驗證 → 取消 suspend
+
+> ⚠️ **新 ConfigMap 必須換名為 `agent-dev-poller-script-v2`，不可沿用
+> `agent-dev-poller-script`。** 舊的 `cronjob.yaml` 內嵌了一個同名 ConfigMap，
+> 那正是服務 genie 的那份；而新舊 script 的 env 契約**不相容**（新版要求
+> `TARGET_BOT_ID` 等變數，舊 CronJob 沒設）。若沿用同名重建，**genie 的實例
+> 下一輪就會因缺變數直接 abort**——在還沒要動它的第一步就打爆它。
+>
+> `grill-poller` 沒有這個問題（`grill-poller-script` 是全新名稱，舊的叫
+> `jira-grill-poller-script`）。genie 切換完、舊 `cronjob.yaml` 刪除之後，
+> `-v2` 只是無害的歷史包袱，要清掉得同時改兩份 yaml 並重建 ConfigMap，非必要。
 3. 驗證穩定後才切 genie：
    **`kubectl patch` 把舊的 `agent-dev-poller` suspend → 部署
    `agent-dev-poller-genie` → 驗證 → 刪除舊的**
