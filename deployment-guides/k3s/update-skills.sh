@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# 更新四隻 bot 已安裝的 plugin/skill 內容到最新版本（marketplace 快照刷新 + plugin 更新）。
+# 更新 k3s 上 bot 已安裝的 plugin/skill 內容到最新版本（marketplace 快照刷新 + plugin 更新）。
 #
 # 用法：在 k3s 機器上直接執行 `bash update-skills.sh`。
+#
+# ⚠️ 2026-09-15 起這支**只剩 Genie**。Rick/Morty/Summer 已搬回 Mac mini OrbStack，
+#    改用 ../mac/update-skills.sh（那台沒有 kubeconfig、這台沒有 OrbStack）；
+#    kimi/walle/eve 是 opencode 後端、目前沒裝任何 skill（opencode 走
+#    ~/.claude/skills/ 目錄而非 claude plugin，當初決定先不接），所以不在這支裡。
+#    ——原本這支還列著已刪除的 openab-claude-rick/-morty/openab-codex-summer 三個
+#    block，在 set -euo pipefail 下第一行 kubectl exec 就失敗、整支中止，連 Genie
+#    都更新不到。下面那些「四隻都裝」的說明是寫於當時的沿革記錄，保留供對照。
 #
 # ⚠️ 只更新「plugin 安裝」的 skill（openab-bot-skills、solo-bot-skills、superpowers、skill-registry）。
 # ⚠️ 2026-07-24 決定：skill-registry plugin（jira-fetch/learn-from-repo/self-evolution）
@@ -48,13 +56,15 @@
 #    （`ssh: not found`），一律失敗並回報「SSH authentication failed」。用完整
 #    `https://github.com/104corp/104cac-claude-marketplace` 才會走 gh 已設定好的
 #    HTTPS credential helper（`gh auth setup-git`），不會嘗試 SSH。實測踩過（2026-08-05）。
-# ⚠️ 2026-08-24 只給 Rick 新增 `mattpocock-skills@claude-plugins-official`：jira-grill
+# ⚠️ 2026-08-24 新增 `mattpocock-skills@claude-plugins-official`：jira-grill
 #    skill 的 design-tree/frontier 連續提問方法論引用這個 plugin 裡的 `grilling` skill，
 #    單一事實來源留在那邊、jira-grill 本身不重複實作。marketplace `claude-plugins-official`
 #    已因 superpowers 而加過，不需要再 `marketplace add`。跟 skill-registry 同樣的
-#    tradeoff：這個 plugin 沒辦法只挑 grilling 裝，Rick 會多出 diagnosing-bugs/tdd/
-#    prototype/wizard 等用不到的 skill，**已知且接受**。只給 Rick，不給
-#    Morty/Summer/Genie——目前只有 jira-grill 需要它。
+#    tradeoff：這個 plugin 沒辦法只挑 grilling 裝，會多出 diagnosing-bugs/tdd/
+#    prototype/wizard 等不一定用得到的 skill，**已知且接受**。
+#    ⚠️ **2026-09-17 更新**：原本只給 Rick，現已改成 Rick/Morty/Summer 三隻都裝
+#    （獨狼化後三隻能力對等）——但那三隻已搬到 Mac，實際指令在 ../mac/update-skills.sh。
+#    **Genie 維持不裝**，這支腳本裡沒有它。
 # ⚠️ 2026-09-10 只給 Genie 新增 `cac-lab@cac-plugins`（來源同 team-bot 的
 #    104corp/104cac-claude-marketplace，PR #16 合併後新增的 plugin）：內含
 #    104-jira-guideline / 104-jira-create-subtask / 104-jira-deploy-ticket-audit
@@ -67,42 +77,9 @@ set -euo pipefail
 
 NS=cac
 
-echo "=== Rick (openab-claude-rick) ==="
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- gh auth switch --hostname github.com --user cac-william
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update claude-plugins-official || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update openab-bot-skills@wm4n-skill-registry
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update superpowers@claude-plugins-official
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install mattpocock-skills@claude-plugins-official || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update mattpocock-skills@claude-plugins-official
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install skill-registry@wm4n-skill-registry || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace add https://github.com/104corp/104cac-claude-marketplace || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin marketplace update cac-plugins || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin install team-bot@cac-plugins || true
-kubectl exec "deployment/openab-claude-rick" -n "$NS" -- claude plugin update team-bot@cac-plugins
-echo
-
-echo "=== Morty (openab-claude-morty) ==="
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- gh auth switch --hostname github.com --user cac-william
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace update claude-plugins-official || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update openab-bot-skills@wm4n-skill-registry
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update superpowers@claude-plugins-official
-# skill-registry（jira-fetch）：marketplace 理論上已因 openab-bot-skills 而註冊過，
-# 這行只是防呆；install 補裝漏裝的部分，已裝過時 install 會失敗、忽略即可
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace add wm4n/skill-registry || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin install skill-registry@wm4n-skill-registry || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update skill-registry@wm4n-skill-registry
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace add https://github.com/104corp/104cac-claude-marketplace || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin marketplace update cac-plugins || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin install team-bot@cac-plugins || true
-kubectl exec "deployment/openab-claude-morty" -n "$NS" -- claude plugin update team-bot@cac-plugins
-echo
-
 echo "=== Genie (openab-claude-genie) ==="
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- gh auth switch --hostname github.com --user 104cac
-kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace add wm4n/skill-registry || true
+kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace add https://github.com/wm4n/skill-registry || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin marketplace update wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install solo-bot-skills@wm4n-skill-registry || true
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update solo-bot-skills@wm4n-skill-registry
@@ -116,21 +93,6 @@ kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin install 
 kubectl exec "deployment/openab-claude-genie" -n "$NS" -- claude plugin update cac-lab@cac-plugins
 echo
 
-echo "=== Summer (openab-codex-summer) ==="
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- gh auth switch --hostname github.com --user cac-william
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade wm4n-skill-registry || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade superpowers-marketplace || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove openab-bot-skills@wm4n-skill-registry || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add openab-bot-skills@wm4n-skill-registry
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove superpowers@superpowers-marketplace || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add superpowers@superpowers-marketplace
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove skill-registry@wm4n-skill-registry || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add skill-registry@wm4n-skill-registry
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace add https://github.com/104corp/104cac-claude-marketplace || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin marketplace upgrade cac-plugins || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin remove team-bot@cac-plugins || true
-kubectl exec "deployment/openab-codex-summer" -n "$NS" -- codex plugin add team-bot@cac-plugins
-echo
-
-echo "全部更新完成。到 Discord 對 Rick / Morty / Summer / Genie 各開一條新 thread 再驗證；"
-echo "若新 thread 驗證後發現還是舊版，才需要 kubectl rollout restart deployment/<name> -n cac。"
+echo "Genie 更新完成。到 Discord 對它開一條新 thread 再驗證；"
+echo "若新 thread 驗證後發現還是舊版，才需要 kubectl rollout restart deployment/openab-claude-genie -n cac。"
+echo "Mac 上的 Rick / Morty / Summer 請在那台機器跑 ../mac/update-skills.sh。"

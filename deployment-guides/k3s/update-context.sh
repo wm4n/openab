@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# 更新七隻 bot 的 context 檔（CLAUDE.md / AGENTS.md）：git pull openab repo 最新內容，
-# 重新 cat 對應的 *_v2.md 進容器內的 CLAUDE.md／AGENTS.md。
+# 更新 k3s 上四隻 bot 的 context 檔（CLAUDE.md / AGENTS.md）：git pull openab repo
+# 最新內容，重新 cat 對應的 *_v2.md 進容器內的 CLAUDE.md／AGENTS.md。
 #
 # 用法：在 k3s 機器上直接執行 `bash update-context.sh`。
 #
+# ⚠️ 2026-09-15 起這支**只管 k3s 上的 genie / kimi / walle / eve**。
+#    Rick/Morty/Summer 已搬回 Mac mini OrbStack，用 ../mac/update-context.sh
+#    （那台沒有 kubeconfig、這台沒有 OrbStack，互相碰不到對方的容器，所以拆成兩支）。
+#    ——原本這支還列著已刪除的 openab-claude-rick/-morty/openab-codex-summer，
+#    在 set -euo pipefail 下第一隻就中止，連後面四隻都更新不到。
 # ⚠️ 只更新 context 檔本身；不裝/不更新 skill plugin（見 BOT_SETUP.md K2a/K2b）。
-# ⚠️ 執行完後，七隻 bot 都要在 Discord 各開一條「新 thread」才會重讀 context 檔——
+# ⚠️ 執行完後，四隻 bot 都要在 Discord 各開一條「新 thread」才會重讀 context 檔——
 #    舊 thread 不會重讀（見 BOT_SETUP.md Part N）。
 # ⚠️ opencode 後端的三隻（Kimi / Wall-E / Eve）：對應 values 不可設 agentsMd，否則
 #    /home/node/AGENTS.md 會是唯讀 ConfigMap，下面的 cat 會失敗（見 bot-setup-opencode-kimi.md 附錄 A）。
@@ -19,9 +24,6 @@ CHECKOUT=/home/node/github-repo/openab
 
 # name:deployment:persona 來源檔:容器內目標檔
 BOTS=(
-  "Rick:openab-claude-rick:Rick-CLAUDE_v2.md:CLAUDE.md"
-  "Morty:openab-claude-morty:Morty-CLAUDE_v2.md:CLAUDE.md"
-  "Summer:openab-codex-summer:Summer-AGENTS_v2.md:AGENTS.md"
   "Genie:openab-claude-genie:Genie-CLAUDE_v2.md:CLAUDE.md"
   "Kimi:openab-claude-kimi:Kimi-AGENTS_v2.md:AGENTS.md"
   "Wall-E:openab-claude-walle:Walle-AGENTS_v2.md:AGENTS.md"
@@ -46,4 +48,5 @@ for entry in "${BOTS[@]}"; do
   echo
 done
 
-echo "全部更新完成。記得到 Discord 對 Rick / Morty / Summer / Genie / Kimi / Wall-E / Eve 各開一條新 thread 才會重讀 context 檔。"
+echo "k3s 四隻更新完成。記得到 Discord 對 Genie / Kimi / Wall-E / Eve 各開一條新 thread 才會重讀 context 檔。"
+echo "Mac 上的 Rick / Morty / Summer 請在那台機器跑 ../mac/update-context.sh。"
