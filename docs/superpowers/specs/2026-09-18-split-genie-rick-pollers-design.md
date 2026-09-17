@@ -155,18 +155,26 @@ skill 是兩隻共用的，這是向後相容的硬要求。
   comment（Rick 走 `repo-identity` 依 owner 選 wm4n／cac-william，genie 固定
   `104cac`）。**poller 的 token 不需要留言權限。**
 
-### ⚠️ 會擋住上線的前置：Rick 的 PAT 目前可能沒有留言權限
+### ✅ PAT 留言權限（原本擔心會擋住上線，實測不需要改）
 
 `deployment-guides/BOT_SETUP.md` Part B2 明寫 fine-grained PAT 的
-`Issues → Read and write`「**只有 Morty 需要**；Rick/Summer 用不到可留 No access」
-——那是接力時代的判斷，當時 Rick 不需要在 issue 上留言。
+`Issues → Read and write`「**只有 Morty 需要**；Rick/Summer 用不到可留 No
+access」——那是接力時代的判斷，當時 Rick 不需要在 issue 上留言。本設計原本據此
+把「Rick 兩把 PAT 都要補 Issues RW」列為必做前置。
 
-現在 Rick 要在 GitHub issue 上逼問，**兩把 PAT（wm4n 與 cac-william）都要補
-`Issues: Read and write`**，否則 skill 會跑到貼留言那步才失敗，失敗點在 LLM 那
-一輪、log 不好追。genie 的 `104cac` 帳號對其 GitHub repo 同理。
+**2026-09-18 實測推翻**：Rick 用 `wm4n` 帳號對 `wm4n/chainbreak` 的 issue 貼
+留言**直接成功，不需要改任何 PAT**。原因推測是 B2 那段描述的是 fine-grained
+PAT 的建議值，而實際在用的是 **classic PAT**（`repo` scope 本來就涵蓋 issue
+寫入）。
 
-**這件事要在 poller 上線前獨立驗證**：拿 bot 的帳號對白名單裡任一個 repo 的測試
-issue 貼一則留言即可。
+**教訓是「先驗證再動手」**：照原本的 spec 會去改兩把正在服務中的 token，
+完全沒有必要，而改壞的話影響的是 bot 全部的 GitHub 操作，不只 grill。
+
+⚠️ **仍未驗證的部分**：genie 的 `104cac` 帳號對它那兩個 104corp repo 的留言
+權限（104corp 的 org 政策與個人帳號不同）。Phase 1 驗證 genie 時會一併確認。
+
+> skill 那邊的執行前權限檢查**仍然保留**——它防的是「換了 repo／換了帳號」的
+> 未來情境，不是只為這次上線。
 
 ## 前置設定（人工，與程式碼無關）
 
@@ -174,9 +182,9 @@ issue 貼一則留言即可。
 | --- | --- | --- |
 | 1 | `jira-grill-trigger` bot 邀進 william workspace | 要能在 bot-notify（`1526283579309690990`）發言 |
 | 2 | ~~改 Rick 的 config~~ | **不用改、不用 restart**：Rick 的 `trusted_bot_ids` 已含該 bot（`1541617131442147438`）、`allowed_channels` 已含 bot-notify，2026-09-15 搬家時原樣帶過來 |
-| 3 | Rick 兩把 PAT 補 `Issues: Read and write`；genie 的 `104cac` 確認 | 見上節 |
+| 3 | ~~Rick 兩把 PAT 補 `Issues: Read and write`~~ | ✅ **2026-09-18 實測不需要改**（現用 classic PAT 已涵蓋）。genie 的 `104cac` 仍待 Phase 1 一併驗證。見上節 |
 | 4 | 新建 K8s Secret `github-agent-dev-poller-wm4n`（wm4n 的 PAT） | rick 的 repo 目前都是 wm4n owner；`-cac` 沿用現有那個、也一併掛到 rick 的兩支上先備著（之後若加 104corp repo 只要改白名單、不用動 Secret）。⚠️ Secret 名稱裡的 `agent-dev` 是沿革，實際為四支 poller 共用 |
-| 5 | 建 label | rick 的兩個 repo 要建 grill 的 `grill-me`／`grill-me-active` **與** agent-dev 的 `ready-for-agent-dev`／`agent-dev-active`／`agent-dev-done`／`agent-dev-failed`；genie 的兩個 GitHub repo 要建 grill 那兩個 |
+| 5 | 建 label | ✅ **2026-09-18 完成（共 20 個，全新建）**：rick 的兩個 repo 各 7 個（grill 的 `grill-me`／`grill-me-active`／`grill-me-done` **加上** agent-dev 的 `ready-for-agent-dev`／`agent-dev-active`／`agent-dev-done`／`agent-dev-failed`）；genie 的兩個 GitHub repo 各 3 個 grill label。⚠️ 原本這格漏了 **`grill-me-done`**——skill 收斂/中止時要把 label 換成它，沒先建會在最後一步失敗 |
 
 ## 上線順序與退路
 
