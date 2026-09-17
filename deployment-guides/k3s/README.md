@@ -1,13 +1,23 @@
 # k3s 部署工件
 
-三隻 bot 遷移到單節點 k3s 的 Helm values 與秘密範本。**完整操作步驟見 [`../K3S.md`](../K3S.md)**；設計依據見 `docs/superpowers/specs/2026-07-20-k3s-migration-design.md`。
+單節點 k3s（namespace `cac`）上的 Helm values、秘密範本、獨立 CronJob 與維運腳本。**完整操作步驟見 [`../K3S.md`](../K3S.md)**；設計依據見 `docs/superpowers/specs/2026-07-20-k3s-migration-design.md`。
+
+> ## ⚡ 現況（2026-09-17）
+>
+> **k3s 上跑的是 genie + kimi / walle / eve 四隻。** Rick/Morty/Summer 已於 2026-09-15 永久搬回 Mac mini OrbStack（自建 image），`openab-claude-rick`／`-morty` deployment 與整個 `openab-codex` release 都已刪除、PVC 也清掉了——見 [`../ORBSTACK-ROLLBACK.md`](../ORBSTACK-ROLLBACK.md)。
+>
+> 因此本目錄裡：
+>
+> - `values-openab-codex.yaml` 與 `values-secret-codex.example.yaml` **已無對應的線上部署**，保留當 Codex 家族 release 的範本（seccomp Unconfined 那套寫法之後還會用到）。
+> - `update-context.sh` / `update-skills.sh` **已於 2026-09-17 拆乾淨**：只管 k3s 上的 bot（context 四隻、skill 只有 genie——opencode 三隻沒裝任何 skill）。Mac 三隻改用 [`../mac/`](../mac/) 底下的同名腳本；兩台機器互相碰不到對方的容器，刻意不合併成一支。
+> - `usage-stats/` ❌ **尚未部署**（程式碼完成、PV/ConfigMap/CronJob 都還沒 apply）。
 
 ## 檔案
 
 | 檔案 | 用途 |
 | --- | --- |
-| `values-openab-claude.yaml` | `openab-claude` release：Rick + Morty（RuntimeDefault） |
-| `values-openab-codex.yaml` | `openab-codex` release：Summer（seccomp Unconfined） |
+| `values-openab-claude.yaml` | `openab-claude` release：**目前只有 genie**（RuntimeDefault；含 mise/Android SDK 的 PATH、dind sidecar、JIRA/Figma/Jenkins secretEnv）。Rick/Morty 的區塊已於 2026-09-15 移除 |
+| `values-openab-codex.yaml` | `openab-codex` release：Summer（seccomp Unconfined）。⚠️ **該 release 已 `helm uninstall`**，此檔僅供日後再開 Codex 家族 release 時參考 |
 | `values-openab-kimi.yaml` | Kimi bot overlay（opencode + OpenRouter，模型 `moonshotai/kimi-k3`）：可併進 `openab-claude` release 或獨立 release。做法見 [`../bot-setup-opencode-kimi.md`](../bot-setup-opencode-kimi.md) 附錄 A |
 | `values-openab-walle.yaml` | Wall-E bot overlay（opencode + OpenRouter，模型 `deepseek/deepseek-v4-pro-0813`）。跟 Kimi 同套，見附錄 C |
 | `values-openab-eve.yaml` | Eve bot overlay（opencode + OpenRouter，模型 `z-ai/glm-5.2`）。跟 Kimi 同套，見附錄 C |
@@ -19,7 +29,14 @@
 | `.gitignore` | 擋 `values-secret*.yaml` 被 commit |
 | `verify-stats-sources.py` | 唯讀診斷：掃各 agent PVC 上的 transcript／SQLite，確認統計要用的欄位在不在（見下方「統計資料源診斷」） |
 | `verify-archive-superset.py` | 唯讀診斷：用內容雜湊確認新的累積鏡像是否完整包含早期的日期快照，決定舊快照能不能刪（見 [`../K3S.md`](../K3S.md)「transcript 保留期限」） |
-| `usage-stats/` | bot 使用統計：CronJob 收集 + 手動產報表。見 [`usage-stats/README.md`](usage-stats/README.md) |
+| `usage-stats/` | bot 使用統計：CronJob 收集 + 手動產報表。**❌ 尚未部署**。見 [`usage-stats/README.md`](usage-stats/README.md) |
+| `agent-dev-poller/` | 獨立 K8s CronJob（不含 LLM）：偵測 `ready-for-agent-dev` label → 用 `jira-grill-trigger` bot @mention genie 進全自動開發。只在離峰時段跑（`*/10 21-23,0-6 * * *`）、每輪只認領一張票 |
+| `jira-grill-poller/` | 獨立 K8s CronJob（不含 LLM）：偵測 `grill-me` 票／新回覆 → @mention 目標 bot（`GRILL_TARGET_BOT`，預設 `rick`）。⚠️ **目前 `suspend: true` 暫停中**（2026-09-14 起）；它 trigger 的 Rick 已搬到 Mac，但 trigger 走 Discord @mention，與執行主機無關 |
+| `update-context.sh` | 對 **k3s 四隻**（genie/kimi/walle/eve）`git pull` openab repo、重新 `cat` persona 進 `CLAUDE.md`／`AGENTS.md` |
+| `update-skills.sh` | 更新 **genie** 已安裝的 plugin/skill（marketplace 刷新 + install/update）。kimi/walle/eve 沒裝 skill，不在此列 |
+| `deploy-walle-eve.sh` | Wall-E / Eve 上線用的互動 wizard（10 stage，人做的事會停下來提示） |
+| `genie-mise-setup.md` | genie 的 polyglot runtime（mise shims 模式：Flutter/Python/PHP/Android SDK） |
+| `genie-docker-setup.md` | genie 的 docker-in-docker sidecar（給不用 mise、改用 Dockerfile/Makefile 的 repo） |
 
 ## 快速驗證（在有 helm 的機器）
 
@@ -31,20 +48,41 @@
 # 語法/模板檢查（給假 token 只為通過 render）
 helm lint ../../charts/openab \
   -f values-openab-claude.yaml \
-  --set agents.rick.discord.botToken=x --set agents.morty.discord.botToken=y
+  --set agents.genie.discord.botToken=x
 
 # 看生成的 config.toml 對不對
 helm template openab-claude ../../charts/openab \
   -f values-openab-claude.yaml \
-  --set agents.rick.discord.botToken=x --set agents.morty.discord.botToken=y \
+  --set agents.genie.discord.botToken=x \
   | grep -E 'command|allowed_role_ids|inherit_env|working_dir'
 ```
+
+> 要一次 render 四隻就把 kimi/walle/eve 的 overlay 也帶上（`-f values-openab-kimi.yaml` …），並各給一個假的 `botToken`。
+>
+> 💡 `helm template` 這招不只用來 lint——2026-09-15 把三隻搬回 Mac 時，就是用它對著 k3s 當時的 values 把**實際生效的 `config.toml` 原文印出來**抄進 docker 版 runbook，比手動翻譯 values 語意可靠得多（純本機 render，不連 cluster、不碰秘密）。
 
 > `helm template` / `helm install` 則**可**用 OCI（`oci://ghcr.io/openabdev/charts/openab`）
 > 或 GitHub Pages repo（`helm repo add openab https://openabdev.github.io/openab`）——
 > 但若欄位對不上請改回本機 chart 或用 `--version` 指定較新版。
 
-## 安裝（節錄，完整見 K3S.md）
+## 現行 upgrade 指令（改任何 values 都用這一條）
+
+`openab-claude` 這個 release 現在同時裝著 genie + kimi + walle + eve，**每次 `helm upgrade` 都要把全部 `-f` 帶齊**——漏掉任何一個 overlay，那隻 agent 就會從合併結果裡消失（Helm 是深度合併，少給檔案＝少那段設定）：
+
+```bash
+helm upgrade openab-claude ../../charts/openab -n cac \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml \
+  -f values-openab-kimi.yaml   -f values-secret-kimi.yaml \
+  -f values-openab-walle.yaml  -f values-secret-walle.yaml \
+  -f values-openab-eve.yaml    -f values-secret-eve.yaml
+```
+
+> ⚠️ **反過來也成立**：要把某隻 agent 移除，**每一個 `-f` 檔案**裡的該區塊都要刪——只改 `values-openab-claude.yaml`、忘了 `values-secret-claude.yaml` 的話它會復活（2026-09-15 移除 rick/morty 時實際踩過，見 [`../ORBSTACK-ROLLBACK.md`](../ORBSTACK-ROLLBACK.md) Phase C1）。
+>
+> ⚠️ 用 OCI chart（`oci://ghcr.io/openabdev/charts/openab`）時**務必帶 `--version`**（先 `helm history openab-claude -n cac` 看目前 deployed 的版本）：不指定會抓 registry 當下的預設 tag，2026-08-24 實測拉到較新的 chart 會因為 genie 用舊式結構化欄位而整個 upgrade 失敗。用本機 `../../charts/openab` 則沒這個問題。
+
+<details>
+<summary>🕘 當初的首次安裝指令（2026-07-21，rick/morty/summer 時代）</summary>
 
 ```bash
 kubectl create namespace cac
@@ -56,6 +94,10 @@ helm install openab-claude oci://ghcr.io/openabdev/charts/openab -n cac \
 helm install openab-codex  oci://ghcr.io/openabdev/charts/openab -n cac \
   -f values-openab-codex.yaml -f values-secret-codex.yaml
 ```
+
+`openab-codex` release 已於 2026-09-15 `helm uninstall`。
+
+</details>
 
 ### Kimi bot（opencode + OpenRouter）
 
@@ -139,6 +181,8 @@ OPENAB_DATA_ROOT=/your/path python3 verify-stats-sources.py
 「無」就是上游改了注入方式或 CLI 改了存法）。
 
 ### 2026-09-10 首次實跑結果
+
+> ⚠️ **這份結果是 2026-09-15 rick/morty/summer 搬離 k3s 之前跑的。** 那三隻的 PVC 已在搬家當天刪除，所以現在在這台節點上執行這支腳本**只掃得到 genie / kimi / walle / eve 四隻**；那三隻的歷史資料只可能留在 `/data/william/openab-archive/mirror`（見 [`../K3S.md`](../K3S.md)「transcript 保留期限」），活資料要去 Mac 上的 docker volume 才有。下表的欄位判定（哪些數字能用、哪些不能加）不受影響，仍然是 parser 的依據。
 
 **七隻全部可用**，四項統計（任務數／對話數／token 對應 model／摩擦指標）的資料都拿得到。
 

@@ -1,12 +1,40 @@
 # 三 Bot 遷移到 k3s Runbook
 
+> ## ⚡ 現況快照（2026-09-17）——先讀這段
+>
+> **這份文件的主線（把 Rick/Morty/Summer 搬上 k3s）已經是歷史。** 2026-09-15 那三隻**永久搬回 Mac mini OrbStack**、改用本機自建 image，k3s 上的 `openab-claude-rick`／`openab-claude-morty` deployment 與 `openab-codex` release 都已刪除，PVC 也清掉了（回程過程見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md)）。
+>
+> **k3s（namespace `cac`）現在還在跑的是：**
+>
+> | 部署 | 內容 | 說明 |
+> | --- | --- | --- |
+> | `openab-claude` release | `openab-claude-genie` | 104corp 專案專用，獨立不接力。映像 `ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273` |
+> | 同一 release（overlay values） | `openab-claude-kimi` / `-walle` / `-eve` | opencode + OpenRouter 三隻，見 [`bot-setup-opencode-kimi.md`](bot-setup-opencode-kimi.md) |
+> | 獨立 CronJob | `agent-dev-poller` | 只在離峰時段跑（`*/10 21-23,0-6 * * *`），每輪只認領一張票 |
+> | 獨立 CronJob | `jira-grill-poller` | **`suspend: true` 暫停中**（2026-09-14 起）。它 trigger 的 Rick 已搬到 Mac，但 trigger 走 Discord @mention，與執行主機無關，恢復只要拿掉 `suspend` |
+> | ❌ 未部署 | `usage-stats-collect` | 程式碼已完成（`usage-stats/`），**PV/ConfigMap/CronJob 都還沒 apply**，見下方「使用統計 CronJob」 |
+>
+> **怎麼讀這份文件：**
+>
+> - **Phase A–D、Rollback**＝2026-07-21 那次遷移的歷史記錄，指令裡的 `openab-claude-rick`／`-morty`／`openab-codex-summer` 都已不存在。
+> - **[未來加 agent](#未來加-agent)、[疑難排解](#疑難排解)、[維運對照](#維運對照)、transcript 保留期限、使用統計**＝**仍然有效**，是目前 k3s 上這四隻的日常依據。
+> - **維運腳本已拆成兩套**（2026-09-17）：`k3s/update-context.sh`（genie/kimi/walle/eve 四隻）與 `k3s/update-skills.sh`（只剩 genie——opencode 三隻沒裝任何 skill）留在這台；Mac 三隻改用 [`mac/`](mac/) 底下的同名腳本。原本兩支都還列著已刪除的 rick/morty/summer deployment，在 `set -euo pipefail` 下第一隻就中止、連 genie 都更新不到。
+>
+> ---
+>
 > 把三隻 openab bot（Rick/Morty/Summer）從 Mac mini(OrbStack) + Portainer 搬到**單節點 Ubuntu VM 上的 k3s**。
 >
 > **策略**：混合——用官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty；`openab-codex`：Summer），同一 namespace `cac`（團隊共用 namespace，未來其他 CAC 專案也可共用；與這台 cluster 上既有的另一組 openab 部署 `mis-ai`〔跑在 `default`〕區隔開）。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 走 `kubectl exec` bootstrap**（＝ BOT_SETUP Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 把停機壓到近零。
 >
 > 設計依據：`docs/superpowers/specs/2026-07-20-k3s-migration-design.md`。values 檔在 `deployment-guides/k3s/`。
 >
-> **2026-07-24 更新**：已加入第 4 隻 bot（genie，`openab-claude` release，104corp 專案專用、獨立不接力）。本文標題與 Phase A-D 仍是原始三隻的遷移記錄；新增 agent 一律照 [未來加 agent](#未來加-agent) 章節走（該章節已按 genie 實測結果改寫）。
+> **agent 增減沿革**：
+>
+> - **2026-07-24**：加入第 4 隻 genie（`openab-claude` release，104corp 專案專用、獨立不接力）。
+> - **2026-09-10**：再加 kimi / walle / eve 三隻（opencode + OpenRouter，併進同一個 `openab-claude` release，各自一份 overlay values 檔）。
+> - **2026-09-15**：rick / morty 從 `openab-claude` release 移除（改 values + `helm upgrade`，**不是** `helm uninstall`，否則會連 genie 一起殺）；`openab-codex` release（只有 Summer）整個 `helm uninstall`。
+>
+> 本文標題與 Phase A-D 仍是原始三隻的遷移記錄；新增 agent 一律照 [未來加 agent](#未來加-agent) 章節走（該章節已按 genie 實測結果改寫）。
 
 ---
 
@@ -16,12 +44,14 @@
 - [1. 前置需求](#1-前置需求)
 - [2. 鐵則](#2-鐵則)
 - [Phase A — 前置準備（Mac mini 照常）](#phase-a--前置準備mac-mini-照常)
-- [Phase B — helm install（sleep 隔離）+ 逐 pod bootstrap](#phase-b--helm-installsleep-隔離--逐-pod-bootstrap)
+- [Phase B — helm install（sleep 隔離）+ 逐 pod bootstrap](#phase-b--helm-installsleep-隔離-逐-pod-bootstrap)
 - [Phase C — 翻轉（唯一停機點）](#phase-c--翻轉唯一停機點)
 - [Phase D — 端對端驗證 + 收尾](#phase-d--端對端驗證--收尾)
 - [Rollback](#rollback)
 - [維運對照](#維運對照)
 - [未來加 agent](#未來加-agent)
+- [⚠️ transcript 保留期限](#transcript-保留期限資料每天在消失2026-09-11-發現)
+- [使用統計 CronJob](#使用統計-cronjob)
 - [疑難排解](#疑難排解)
 
 ---
@@ -59,6 +89,8 @@
 
 ## Phase A — 前置準備（Mac mini 照常）
 
+> 🕘 **Phase A–D 與 Rollback 是 2026-07-21 那次遷移的歷史記錄**（rick/morty/summer 已於 2026-09-15 搬回 Mac，相關 deployment/release 都已刪除）。要在 k3s 上新增 agent 請直接看 [未來加 agent](#未來加-agent)。
+>
 > 此階段不影響 Mac mini/Portainer 上正在服務的三隻。
 
 ```bash
@@ -264,20 +296,26 @@ kubectl logs deploy/openab-claude-rick -n cac | grep -i discord   # 連線成功
 
 ## Rollback
 
+> 🕘 **歷史記錄（2026-07-21 去程用的退路）。** 實際後來沒有用到這條 rollback：k3s 穩定跑了兩個月，2026-09-15 是**主動決定**把三隻永久搬回 Mac（走的是 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) 那份反向 runbook，不是這段），Mac mini 上當時的舊容器與 volume 也早已清掉。
+
 - Mac mini/Portainer 容器**只停不刪**、volume 保留。
 - k3s 翻車 → 停 k3s（`kubectl scale deploy --all --replicas=0 -n cac` 或 `helm uninstall openab-claude openab-codex -n cac`）→ 到 Mac mini/Portainer `docker start` / Start 三隻 → token 回舊環境。**幾分鐘可逆。**
 - 確認 k3s 穩定數天後，才 `docker rm` Mac mini 容器與 volume。
 
 ---
 
-## 維運對照（全 `-n cac`）
+## 維運對照
 
-| 動作 | Mac mini | k3s |
+> 下列 `kubectl` 指令全部要帶 `-n cac`。
+>
+> **現行 k3s deployment**：`openab-claude-genie`、`openab-claude-kimi`、`openab-claude-walle`、`openab-claude-eve`。下表左欄的 Mac mini 指令現在對應的是 **Rick/Morty/Summer**（容器 `openab-rick`/`openab-morty`/`openab-summer`，要帶 `-c orbstack`），見 [`BOT_SETUP.md`](BOT_SETUP.md)。
+
+| 動作 | Mac（OrbStack） | k3s |
 | --- | --- | --- |
-| 看狀態 | `docker ps` | `kubectl get pods -n cac` |
-| 看 log | `docker logs -f openab-rick` | `kubectl logs -f deploy/openab-claude-rick -n cac` |
-| 進容器 | `docker exec -it ... bash` | `kubectl exec -it <pod> -n cac -- bash` |
-| 重啟 | `docker restart` | `kubectl rollout restart deploy/<name> -n cac` |
+| 看狀態 | `docker -c orbstack ps` | `kubectl get pods -n cac` |
+| 看 log | `docker -c orbstack logs -f openab-rick` | `kubectl logs -f deploy/openab-claude-genie -n cac` |
+| 進容器 | `docker -c orbstack exec -it -u node <容器> bash` | `kubectl exec -it <pod> -n cac -- bash` |
+| 重啟 | `docker -c orbstack restart <容器>` | `kubectl rollout restart deploy/<name> -n cac` |
 | 改 context/skill（Part N） | `docker exec … git pull + cat` | `kubectl exec … git pull + cat` → 開新 thread |
 
 **改動 → 動作：**
@@ -290,7 +328,7 @@ kubectl logs deploy/openab-claude-rick -n cac | grep -i discord   # 連線成功
 | `cronjob.toml` 排程（Part L） | `kubectl exec` 改 PVC 上的檔 | 不用，熱重載 |
 | Claude Code 用的 model（`~/.claude/settings.json`） | `kubectl exec` 用 `node -e` merge 寫入 `model` 欄位（見下方） | 不用，開新 thread |
 
-> 部署名慣例：`<release>-<agentKey>` → `openab-claude-rick`、`openab-claude-morty`、`openab-codex-summer`。
+> 部署名慣例：`<release>-<agentKey>` → 現行為 `openab-claude-genie`、`openab-claude-kimi`、`openab-claude-walle`、`openab-claude-eve`（歷史上還有 `openab-claude-rick`、`openab-claude-morty`、`openab-codex-summer`，2026-09-15 已刪除）。
 
 > **切換 Claude Code 用的 model（2026-07-27 實測確認）**：openab 原生 `/models` 選單對 `claude-code`/`codex` 這兩種 backend 不生效（ACP 沒有回傳 `configOptions`，見 `docs/slash-commands.md`）；Discord 對 bot 打 `@Bot /model claude-sonnet-4` 這種「轉發進 ACP session 當 prompt」的方式**只在當前 session 有效、不會持久化**（實測 `settings.json` 內容沒變化）。正解是直接改該 bot 的 `~/.claude/settings.json`：
 >
@@ -386,7 +424,19 @@ helm upgrade <openab-claude 或 openab-codex> ../../charts/openab -n cac -f <val
 
 ---
 
-## ⚠️ transcript 保留期限：資料每天在消失（2026-09-11 發現）
+## transcript 保留期限：資料每天在消失（2026-09-11 發現）
+
+> **⚠️ 2026-09-17 校正：這一節現在只涵蓋 k3s 上那四隻。**
+>
+> - **k3s 現存**：genie（claude-code，會被保留期限清）、kimi/walle/eve（opencode，寫 SQLite，不受 `cleanupPeriodDays` 影響）。所以下面第 3 步的 `for name in rick morty genie` 迴圈**現在只剩 `genie`**。
+> - **rick/morty/summer 的 k3s 資料已經不在了**：PVC 於 2026-09-15 cutover 當天刪除（`helm upgrade` 撞到 PVC spec immutable，被迫提前清）。**它們的歷史只可能留在下面第 1 步建的 archive mirror 裡**（`/data/william/openab-archive/mirror`，每週日 02:00 跑，最後一次應是 09-14）。動任何統計回填前先確認 mirror 真的有跑到：
+>   ```bash
+>   sudo ls -l /data/william/openab-archive/mirror/{rick,morty,summer} 2>/dev/null
+>   sudo tail -5 /var/log/openab-archive.log
+>   ```
+> - **🔴 Mac 上的三隻目前還沒有這套保護**：2026-09-15 是全新 bootstrap，容器裡的 `~/.claude/settings.json` **沒有**設 `cleanupPeriodDays`（＝走預設 30 天），也沒有鏡像機制——**從 2026-09-15 起，Rick/Morty/Summer 的 transcript 正在以 30 天為期滾動消失**。Mac 版的等價物已於 2026-09-17 寫好（[`mac/openab-archive.sh`](mac/openab-archive.sh)，輸出佈局刻意對齊本節的鏡像，`collect.py --archive-root` 不用改就吃得到），**但還沒在那台機器上掛起來**：兩步驟（調高保留期限 + 掛每週 crontab）見 [`mac/README.md`](mac/README.md)。
+>
+> ---
 
 **claude-code 家族的 transcript 會被自動刪除，而那是使用統計唯一的資料來源。**
 發現時 genie 只剩 31 天、rick/morty 24 天的歷史，codex（Summer）則有 52 天。
@@ -519,7 +569,9 @@ sudo cat /data/william/openab/agent-genie/.claude/settings.json
 會弄壞檔案擁有權。
 
 ```bash
-for name in rick morty genie; do
+# 2026-09-17：k3s 上的 claude-code 家族只剩 genie（rick/morty 已搬到 Mac、
+# deployment 已刪除；kimi/walle/eve 是 opencode，不吃這個設定）。
+for name in genie; do
   echo "--- $name ---"
   kubectl exec -i deployment/openab-claude-$name -n cac -- node -e '
 const fs = require("fs");
@@ -552,7 +604,17 @@ done
 
 ## 使用統計 CronJob
 
-`deployment-guides/k3s/usage-stats/` 的收集器（`collect.py`）定期把七隻 bot 的
+> **狀態：❌ 尚未部署（2026-09-17 確認）。** 程式碼（13 個 task、203 個 unittest）
+> 已完成並 push 在 `docs/three-bot-pipeline` branch，但下面第 1–4 步的 PV／
+> ConfigMap／CronJob **都還沒 apply 過**，第 5 步的端對端人工對照也還沒做。
+>
+> **⚠️ 而且涵蓋範圍已經變了**：這支 CronJob 用 `hostPath: /data/william/openab`
+> 讀 **k3s 節點上**的 agent PVC，所以部署後只看得到 **genie / kimi / walle / eve**
+> 這四隻。**Rick/Morty/Summer 2026-09-15 搬到 Mac 之後，它們的資料不在這個節點上**，
+> 這支 CronJob 永遠收不到。要納入那三隻，得另外處理（把 Mac 的 docker volume
+> 同步過來，或在 Mac 上獨立跑一份收集器）——目前沒有任何機制在做這件事。
+
+`deployment-guides/k3s/usage-stats/` 的收集器（`collect.py`）定期把 bot 的
 transcript／SQLite 轉成正規化事件，累積在獨立 PVC 裡；報表（`report.py`）隨時
 手動跑，不碰原始儲存。完整設計見
 `deployment-guides/k3s/usage-stats/README.md`。
@@ -647,4 +709,7 @@ python3 deployment-guides/k3s/usage-stats/report.py \
 | 獨立型 bot（如 genie）能力清單同時列出 `feature-development`/`requirement-analysis`/`change-review` 等接力專用 skill、`openab-schedule` 重複出現兩次 | Bootstrap 時裝成 `openab-bot-skills`（或兩個都裝），沒照「未來加 agent」步驟 5 的接力型/獨立型二選一 | `kubectl exec <pod> -n cac -- claude plugin uninstall openab-bot-skills@wm4n-skill-registry`（獨立型只留 `solo-bot-skills`），裝完用 `claude plugin list` 確認乾淨 |
 | 四隻 bot 能力清單都看不到 `jira-fetch`/`learn-from-repo`/`self-evolution` | k3s 遷移的 Phase B3 只裝了 `openab-bot-skills`/`solo-bot-skills`，`skill-registry` plugin（這三個 skill 的來源）從沒被任何一隻裝上；`update-skills.sh` 原本只想幫 Morty 補裝，但這段其實從沒被真的執行過（2026-07-24 才發現） | 跑更新後的 `update-skills.sh`（已改成四隻都 `install`+`update` `skill-registry@wm4n-skill-registry`），裝完 `claude plugin list`（Codex 用 `codex plugin list`）確認四隻都看得到這三個 skill |
 | `claude`/`codex plugin marketplace add owner/repo`（簡寫）失敗，log 顯示 `ssh: not found` / `SSH authentication failed` | 簡寫被解析成 SSH URL（`git@github.com:owner/repo.git`）去 clone，但這批容器映像沒裝 `ssh` 指令，一律失敗；本文件與 `BOT_SETUP.md` 裡舊的 bootstrap 記錄（`wm4n/skill-registry`、`anthropics/claude-plugins-official` 等）當初能成功，不代表簡寫現在仍然可靠（2026-08-05 新增 `team-bot@cac-plugins` 時才踩到，懷疑是 `claude`/`codex` 版本更新後簡寫預設行為改變或映像拿掉了 ssh 用戶端） | `marketplace add` 一律改用完整 `https://github.com/owner/repo` URL，才會走 `gh auth setup-git` 設好的 HTTPS credential helper，不觸發 SSH；日後幫新 agent 跑「未來加 agent」步驟 5 時，即使抄舊文件的簡寫指令也建議先確認是否要改成完整 URL |
+| **從 values 移除一個 agent 後 `helm upgrade` 失敗**（PVC `spec` immutable） | 移除 agent 後 Helm 想把不再需要的 PVC 欄位（如 `storageClassName`）patch 成 null 去對齊新狀態，但 PVC spec 建立後除 `resources.requests` 外都不可變 | 先手動把該 agent 的資源清掉，讓 helm 沒有東西可 patch：`kubectl delete deployment <name> -n cac` + `kubectl delete pvc <name> -n cac`（⚠️ 刪 PVC 不可逆，確認資料不要了再動；2026-09-15 移除 rick/morty 時實際踩過，原本規劃「穩定幾天後再刪 PVC」的緩衝被迫提前） |
+| **從 values 移除 agent 後，`helm upgrade` 的 NOTES 仍顯示該 agent**（`Agents deployed: genie, morty, rick`，command 欄空白 `()`） | Helm 多個 `-f` 是**深度合併不是後蓋前**。`values-secret-claude.yaml`（gitignored、存 Discord token）自己也有 `agents.rick`/`agents.morty` 區塊，只要任一個 `-f` 檔還定義該 key，它就會在合併結果裡復活（內容缺東缺西，正好解釋空白的 command） | 移除 agent 要**同步檢查每一個 `-f` 檔案**，不能只改 `values-openab-*.yaml`；秘密檔請自行在該機器編輯（不要把 token 貼進任何對話） |
+| `update-context.sh` / `update-skills.sh` 一開始就失敗、後面的 bot 全沒更新到 | 腳本的 bot 清單裡有已刪除的 deployment，而腳本是 `set -euo pipefail`，第一隻失敗就整支中止（2026-09-15 移走 rick/morty/summer 後發生過） | 已於 2026-09-17 修正：這兩支只留 k3s 上的 bot，Mac 三隻改用 `../mac/` 底下的同名腳本。日後增減 agent 記得同步這兩支的清單 |
 | Discord 回報 `Agent exceeded hard timeout (1800s)` | openab broker 對單一 prompt 有 30 分鐘硬上限（`pool.prompt_hard_timeout_secs`，Rust 端預設值），超過就 `session/cancel` 放棄該次請求；genie 的 `solo-feature-pipeline` 一路 `openspec new→ff→apply→review→archive→PR` 做完不中途停，正常情況就可能超過 30 分鐘（若懷疑是真的卡死而非在跑，先查 pod log／Codex 才有的 `approvals_reviewer` 設定，見 `docs/codex.md`） | chart 已支援 `agents.<name>.pool.promptHardTimeoutSecs`（`values.yaml`，預設不設等於沿用 1800s）；genie 已在 `values-openab-claude.yaml` 設 `14400`（4hr），`helm upgrade` 後即生效（checksum 自動滾動重啟該 pod） |

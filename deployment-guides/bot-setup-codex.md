@@ -1,5 +1,29 @@
 # openab Codex Bot 部署(Mac mini,與 Claude bot 並存)
 
+> # 🕘 歷史文件（2026-07-07 寫），已被取代——不要照著做
+>
+> 這份是「在 Mac mini 上開第一顆 Codex bot」的最初版本。線上真的在跑的 Codex bot 是 **Summer**，設定已經跟這份差很多（見下方對照表）。**要部署或維護 Codex bot，請看這三份：**
+>
+> - [`ORBSTACK-ROLLBACK.md`](./ORBSTACK-ROLLBACK.md) —— Summer 現行的完整做法（自建 image B1、config.toml B3、`docker run` B4、skill B8、`~/.codex/config.toml` B10）。
+> - [`BOT_SETUP.md`](./BOT_SETUP.md) Part J（Claude↔Codex 差異）與 K4（Summer 逐項設定）。
+> - [`bot-setup-opencode-kimi.md`](./bot-setup-opencode-kimi.md) —— 另一種非 Claude 後端（opencode + OpenRouter，kimi/walle/eve 三隻）。
+>
+> **這份與現況的差異（照做會踩到的洞）：**
+>
+> | 項目 | 本文件（2026-07） | 現況 |
+> | --- | --- | --- |
+> | 映像 | `ghcr.io/openabdev/openab-codex:latest` | **本機自建** `openab-codex-local:0.10.0-0.154.0` |
+> | seccomp | ❌ 沒提 | **必須** `--security-opt seccomp=unconfined`，否則 bwrap 建不了 namespace、**所有 shell 指令都失敗** |
+> | `~/.codex/config.toml` | ❌ 沒提 | **必須寫**（openab issue #1047）：`sandbox_mode = "danger-full-access"`、`approvals_reviewer = "auto_review"`、`multi_agent = true` 三個 key 缺一不可，漏了會 tool call 掛住 30 分鐘 |
+> | `[agent].args` | `[]` | `["-c", "shell_environment_policy.inherit=all"]` |
+> | GitHub 憑證 | 單一裸 `GH_TOKEN` + `inherit_env` | **gh 雙帳號**（`GH_TOKEN_WM4N`/`GH_TOKEN_CAC` 一次性登入進 `hosts.yml`）。**env 裡有裸 `GH_TOKEN` 會讓 `gh auth login`/`switch` 直接被拒** |
+> | skill | ❌ 沒提 | 四個 plugin（`superpowers`／`openab-bot-skills`／`skill-registry`／`solo-bot-skills`），純 CLI `codex plugin add` |
+> | 脈絡檔 | 手寫 heredoc | 部署 repo 裡的 `Summer-AGENTS_v2.md` |
+>
+> 以下原文保留，僅供沿革對照。
+>
+> ---
+>
 > 在 Mac mini(`CAC@2771`,OrbStack)上再跑一顆 **Codex** bot,與現有 Claude bot 並存。
 > 共用觀念/安全須知/維運見 [`BOT_SETUP.md`](./BOT_SETUP.md);這裡只列可直接照做的步驟 1–8。
 >

@@ -8,9 +8,30 @@
 
 ---
 
+## ⚡ 現況快照（2026-09-17）
+
+**目前有 7 隻 bot，分兩個執行環境，這份 runbook 只涵蓋 Mac 那三隻。**
+
+| 環境 | bot | 後端 | 映像 | 權威文件 |
+| --- | --- | --- | --- | --- |
+| **Mac mini `CAC@2771`**（hostname `2771-Z411210004.local`，OrbStack） | Rick / Morty / Summer | claude-code ×2、codex ×1 | **本機自建**：`openab-claude-local:0.10.0-2.1.272`、`openab-codex-local:0.10.0-0.154.0` | 本檔 + [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) |
+| **k3s**（單節點 Ubuntu VM，namespace `cac`） | genie | claude-code | `ghcr.io/104corp/openab:0.10.0-beta.4-claude-cli2.1.273` | [`K3S.md`](K3S.md) |
+| 同上 | kimi / walle / eve | opencode + OpenRouter | `ghcr.io/openabdev/openab-opencode:latest` | [`bot-setup-opencode-kimi.md`](bot-setup-opencode-kimi.md) |
+
+三個關鍵沿革，讀本檔任何一節前先知道：
+
+1. **2026-07-21 三隻搬去 k3s、2026-09-15 又永久搬回 Mac**（自建 image，genie 留在 k3s）。所以本檔凡是寫 `kubectl exec deployment/openab-claude-rick`（或 morty/summer）的指令**都已失效**——那三個 k3s deployment 已刪除，指令要換成 `docker -c orbstack exec -u node openab-rick ...`。仍有效的 `kubectl exec` 只剩 genie 與三隻 opencode bot。遷移全程與踩過的坑見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md)。
+2. **Morty 不再跑在 Portainer**，2026-09-15 起跟 Rick/Summer 同在 Mac OrbStack。[Part I](#part-i--portainer另一台ui-only部署) 保留給「真的只有 Portainer 網頁」的通用情境，不再描述 Morty 現況。
+3. **三隻已獨狼化（2026-09-15）**：從「Morty 分析→Rick 開發→Morty+Summer 審查」的接力 pipeline，改成**每隻都能獨立完成整個流程**（`solo-feature-pipeline`）。persona 與 plugin 已套用進容器，**端對端尚未實測**。[Part K](#part-k--三隻-bot-的逐隻設定rickmortysummer) 裡的交棒敘述是歷史記錄，現行行為以三份 `*_v2.md` persona 為準。
+
+> **維運腳本已按執行環境拆成兩套**（2026-09-17）：Mac 三隻用 [`mac/`](mac/)（`docker -c orbstack exec`）、k3s 那些用 [`k3s/`](k3s/)（`kubectl exec`）。兩台機器互相碰不到對方的容器，所以刻意不合併成一支。詳見 [Part N](#part-n--更新既有部署的-context-檔與-skill)。
+
+---
+
 ## 目錄
 
 - [openab Bot 部署 Runbook(Mac mini + Discord + Claude Code)](#openab-bot-部署-runbookmac-mini--discord--claude-code)
+  - [⚡ 現況快照（2026-09-17）](#-現況快照2026-09-17)
   - [目錄](#目錄)
   - [1. 架構速覽](#1-架構速覽)
   - [2. 前置需求](#2-前置需求)
@@ -20,7 +41,7 @@
     - [A3. 邀請 Bot 進伺服器](#a3-邀請-bot-進伺服器)
     - [A4. 取得 Channel ID / User ID](#a4-取得-channel-id--user-id)
   - [Part B — 建立 GitHub Token(最小權限)](#part-b--建立-github-token最小權限)
-    - [B1.(強烈建議)用專用 machine user](#b1強烈建議用專用-machine-user)
+    - [B1. 兩個帳號、兩把 token](#b1-兩個帳號兩把-token)
     - [B2. 建 Fine-grained PAT(優先,釘死 repo)](#b2-建-fine-grained-pat優先釘死-repo)
     - [B3. 放進秘密檔(下一節 Part C 會建立)](#b3-放進秘密檔下一節-part-c-會建立)
   - [Part C — Mac mini 主機準備](#part-c--mac-mini-主機準備)
@@ -35,11 +56,11 @@
   - [Part H — 端對端驗證](#part-h--端對端驗證)
   - [Part I — Portainer(另一台,UI-only)部署](#part-i--portainer另一台ui-only部署)
   - [Part J — Codex 變體(與 Claude 並存)](#part-j--codex-變體與-claude-並存)
-  - [Part K — 三 Bot 接力 Pipeline(Morty/Rick/Summer)](#part-k--三-bot-接力-pipelinemortricksummer)
+  - [Part K — 三隻 Bot 的逐隻設定(Rick/Morty/Summer)](#part-k--三隻-bot-的逐隻設定rickmortysummer)
   - [Part L — 定時排程（Cron / Usercron）](#part-l--定時排程cron--usercron)
   - [Part M — 角色觸發（個人別名 / 團隊 mention）](#part-m--角色觸發個人別名--團隊-mention)
   - [Part N — 更新既有部署的 context 檔與 skill](#part-n--更新既有部署的-context-檔與-skill)
-  - [Part O — 遷移到 k3s](#part-o--遷移到-k3s)
+  - [Part O — 兩個執行環境的分工（Mac ↔ k3s）](#part-o--兩個執行環境的分工mac--k3s)
   - [維運](#維運)
   - [安全須知(務必讀)](#安全須知務必讀)
   - [疑難排解](#疑難排解)
@@ -47,10 +68,6 @@
     - [`~/.openab-secrets.env`(chmod 600,放在 `~/oab` 之外)](#openab-secretsenvchmod-600放在-oab-之外)
     - [`~/oab/config.toml`](#oabconfigtoml)
     - [啟動指令](#啟動指令)
-  - [附錄:完整範例檔](#附錄完整範例檔-1)
-    - [`~/.openab-secrets.env`(chmod 600,放在 `~/oab` 之外)](#openab-secretsenvchmod-600放在-oab-之外-1)
-    - [`~/oab/config.toml`](#oabconfigtoml-1)
-    - [啟動指令](#啟動指令-1)
 
 ---
 
@@ -64,15 +81,18 @@ Discord 訊息 ──> openab(容器內 PID1) ──spawn──> claude-agent-ac
                                                                      讀 ~/.config/gh(GitHub)
 ```
 
-**三 Bot Pipeline 實際部署位置：**
+**Mac 上三隻的實際部署位置（2026-09-15 起）：**
 
-| Bot    | 身份                 | 主機              | 容器管理   | 映像                       |
-| ------ | -------------------- | ----------------- | ---------- | -------------------------- |
-| Morty  | Claude(規格+PR複審)  | 另一台機器        | Portainer  | openab-claude:latest       |
-| Rick   | Claude(openspec 開發)| Mac mini(CAC@2771)| OrbStack   | openab-claude:latest       |
-| Summer | Codex(Code Review)   | Mac mini(CAC@2771)| OrbStack   | openab-codex:latest        |
+| Bot    | 後端                      | 主機               | 容器管理 | 映像                                | config 目錄     | volume               |
+| ------ | ------------------------- | ------------------ | -------- | ----------------------------------- | --------------- | -------------------- |
+| Rick   | Claude Code               | Mac mini(CAC@2771) | OrbStack | `openab-claude-local:0.10.0-2.1.272` | `~/oab-rick`    | `openab-rick-home`   |
+| Morty  | Claude Code               | Mac mini(CAC@2771) | OrbStack | `openab-claude-local:0.10.0-2.1.272` | `~/oab-morty`   | `openab-morty-home`  |
+| Summer | Codex(seccomp unconfined) | Mac mini(CAC@2771) | OrbStack | `openab-codex-local:0.10.0-0.154.0`  | `~/oab-summer`  | `openab-summer-home` |
 
-> Mac mini 上同時有 **colima**（團隊服務）和 **OrbStack**（openab）。Rick/Summer 操作一律加 `-c orbstack`，**別動 colima**。Morty 在 Portainer 上，用網頁 Console 操作（無 vi/nano，改設定用 `sed` 或 heredoc）。
+> - 三隻都是**本機自建 image**（不是 `ghcr.io/openabdev/openab-*:latest`，也不是 104corp 私有映像）：原生 arm64、openab 0.10.0、CLI 版本自選。建置與升級步驟見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B1；**建置前要關 VPN**（公司網路會攔 crates.io）。
+> - 三隻的角色分工已於 2026-09-15 改成**各自獨立完成整個流程**，表格裡不再標「規格/開發/複審」——那是舊的接力分工。
+> - Mac mini 上同時有 **colima**（團隊服務 wekan/mongo/jenkins）和 **OrbStack**（openab）。openab 指令一律加 `-c orbstack`，**別動 colima**。
+> - 歷史：Morty 曾在另一台機器的 Portainer 上（2026-07 前）、三隻曾整組跑在 k3s（2026-07-21 ~ 2026-09-15）。
 
 關鍵觀念:
 
@@ -219,6 +239,8 @@ session_ttl_hours = 24
 
 ## Part D — 啟動容器
 
+> 🕘 下面是**開一顆全新 bot 的通用範例**（官方映像、容器名 `openab-claude`）。現行三隻用的是本機自建映像與各自的容器/config/volume 名稱，見 [1. 架構速覽](#1-架構速覽)與 [Part K](#part-k--三隻-bot-的逐隻設定rickmortysummer)。
+
 ```bash
 docker -c orbstack run -d \
   --name openab-claude \
@@ -317,7 +339,7 @@ owner 分流、帳號選擇與該帳號的 repo-local Git 署名，由已安裝 
    ls -la /home/node/.config/gh/hosts.yml      # 檔案在了
    ```
 4. **改 config**:`[agent].inherit_env` 移除 `GH_TOKEN`(**Morty 保留 `JIRA_*`**)→ 重啟(config 掛載)或重建。
-5. **寫入更新後的完整 v2 context 檔**（含「選帳號」開場；見 [Part K](#part-k--三-bot-接力-pipelinemortricksummer)）。
+5. **寫入更新後的完整 v2 context 檔**（含「選帳號」開場；見 [Part K](#part-k--三隻-bot-的逐隻設定rickmortysummer)）。
 6. **煙霧測試**:`gh auth switch --user wm4n` → clone+push 一個個人 repo(署名=wm4n、無 403);再 `gh auth switch --user cac-william` → 對一個公司 repo 同樣測。
 7. **端對端**:在 #dev-bot 各跑一條個人 GitHub Issue 與一條公司任務,確認兩邊 PR 的 commit 署名正確、無 403。
 
@@ -387,6 +409,8 @@ EOF
 
 ## Part I — Portainer(另一台,UI-only)部署
 
+> 🕘 **現況（2026-09-17）：目前沒有任何 bot 跑在 Portainer 上。** Morty 原本是這節的唯一使用者，2026-09-15 已搬到 Mac mini OrbStack（見 [ORBSTACK-ROLLBACK.md](ORBSTACK-ROLLBACK.md)）。本節保留為「手上只有 Portainer 網頁、沒有 shell」時的通用做法參考，不代表現況。
+>
 > 適用:另一台你**只有 Portainer 網頁、沒有 shell** 的主機。與 Mac mini 差異:用 **Stack(compose)** 取代 `docker run`、用 **Console(網頁 exec)** 做登入/設定;**直接用官方 image,不必自 build**。並存時**每顆 bot 用不同 Discord token**(見 Part A)。
 
 **I1. 建 Stack(先 sleep 待命)** — Stacks → Add stack → Web editor:
@@ -444,6 +468,8 @@ gh auth setup-git                    # git 憑證(選帳號見 Part F2)
 
 ## Part J — Codex 變體(與 Claude 並存)
 
+> 🕘 **現況對照**：Summer 就是這個變體，但現在用的是**本機自建的 `openab-codex-local:0.10.0-0.154.0`**（不是下表的 `ghcr.io/openabdev/openab-codex:latest`），且 `docker run` 一定要加 `--security-opt seccomp=unconfined`、容器內要寫 `~/.codex/config.toml`（openab issue #1047，見 [K4](#k4-summercodexorbstack-mac-mini--code-review)）——下表只列 Claude↔Codex 的三處差異，那兩項是 Codex **額外**必要的步驟，漏掉會「所有 shell 指令都失敗」或「tool call 掛住 30 分鐘」。現行完整步驟見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B1/B4/B10。
+>
 > 你有 Codex(OpenAI/ChatGPT)帳號、想再跑一顆 Codex bot。**沿用上面所有步驟**(Mac mini 走 Part A–H、只有網頁的另一台走 Part I),只把下表的值換掉即可。Codex 官方映像也是 node:22 base,家目錄/使用者與 Claude **完全相同**,差異只有三處。
 
 **先決:另一顆 bot = 另一個 Discord Application + 另一把 token + 不同容器名/config/volume**(Part A 整套重做一次,拿到新的 `DISCORD_BOT_TOKEN`)。兩顆 bot **建議各用一個頻道**,避免同頻道兩隻都回。兩把 GitHub token(`GH_TOKEN_WM4N`/`GH_TOKEN_CAC`)可沿用同一組。
@@ -481,11 +507,32 @@ docker -c orbstack exec -u node openab-codex ls -la /home/node/.codex # 驗證�
 
 ---
 
-## Part K — 三 Bot 接力 Pipeline(Morty/Rick/Summer)
+## Part K — 三隻 Bot 的逐隻設定(Rick/Morty/Summer)
 
-> 三顆 bot 分工：**Morty**(Claude@Portainer)負責規格分析與 PR 複審、**Rick**(Claude@OrbStack Mac mini)負責 openspec 開發、**Summer**(Codex@OrbStack Mac mini)負責程式碼 review。靠 openab 的 `allow_bot_messages="mentions"` + `trusted_bot_ids` 讓 bot 互相 @呼叫。
+> ⚠️ **2026-09-15 獨狼化：分工敘述已作廢，逐隻設定仍然有效。**
 >
-> **雙模式**：三隻 bot 預設為資深工程師模式（隨手問答/看 code 不開流程）；被明確要求走流程時才觸發對應 pipeline skill。
+> - **舊分工（已停用）**：Morty 規格分析 → Rick openspec 開發 → Morty+Summer 雙審，靠 `allow_bot_messages="mentions"` + `trusted_bot_ids` 互相 @ 交棒。
+> - **現行**：三隻**各自獨立完成整個流程**（需求分析 → 開發 → 自我審查 → 開 PR），不再互相交棒。人類想要第二意見，自己在 Discord @ 另一隻即可，不需要 bot 幫忙組 mention 字串。`HANDOFF_*` 環境變數已整組移除；`trustedBotIds`/`allowed_role_ids` 保留不動（`jira-grill-poller`/`agent-dev-poller` 這類外部 trigger bot 仍要靠它）。
+> - K2/K3/K4 底下的**交棒/@mention 流程敘述是歷史記錄**；秘密檔、容器啟動、gh 雙帳號、plugin 安裝、Codex config 這些**逐隻設定仍然是現行做法**（唯一要換的是映像名稱與 `kubectl exec` → `docker -c orbstack exec`）。
+>
+> **現行 skill 配置（三隻相同）**：
+>
+> | plugin | 來源 marketplace | 內容 |
+> | --- | --- | --- |
+> | `solo-bot-skills` | `wm4n-skill-registry` | `solo-feature-pipeline`、`jira-grill`、`openab-schedule` |
+> | `openab-bot-skills` | `wm4n-skill-registry` | 現在只為了 `change-review`／`change-review-codex` |
+> | `skill-registry` | `wm4n-skill-registry` | jira-fetch／figma-fetch／learn-from-repo／self-evolution |
+> | `superpowers` | Claude：`claude-plugins-official`；Codex：`superpowers-marketplace` | — |
+> | `team-bot` | `cac-plugins`（104corp 私有） | product-context |
+> | `mattpocock-skills` | `claude-plugins-official` | grilling（jira-grill 的方法論來源）、diagnosing-bugs、tdd… |
+>
+> persona 只引用 `solo-feature-pipeline` 與 `change-review(-codex)` 兩支；`requirement-analysis`/`feature-development` 已無 persona 路徑會叫到。
+>
+> **`mattpocock-skills` 2026-09-17 從「只給 Rick」改成三隻都裝**（獨狼化後三隻能力對等）；⚠️ Summer 那隻是**未驗證路徑**——Codex 對 `claude-plugins-official` 這個 marketplace 沒驗證通過（superpowers 就是為此改用 `obra/superpowers-marketplace`，見 [K2a](#k2a--superpowers-純-cli-安裝法2026-07-22-起k3s-驗證)），腳本設成失敗不中斷、只印警告，跑完要用 `codex plugin list` 確認。
+>
+> **一次裝／更新全部的指令**：[`mac/update-skills.sh`](mac/update-skills.sh)（這才是現行清單的單一事實來源）。[`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B8 是 2026-09-15 搬家當天的**初始**安裝集合，沒有 `team-bot`/`mattpocock-skills`。
+>
+> **雙模式**：三隻 bot 預設為資深工程師模式（隨手問答/看 code 不開流程）；被明確要求走流程時才觸發對應 skill。
 
 ### K1. Bot 互呼設定(config.toml)
 
@@ -499,9 +546,11 @@ trusted_bot_ids    = ["BOT_A_ID", "BOT_B_ID"]  # 填另外兩顆 bot 的 Discord
 
 三顆 bot 的 Discord User ID 取得方式：Discord 開發者模式 → 右鍵 bot 帳號 → 複製使用者 ID。
 
-### K2. Morty(Claude@Portainer) — 規格分析 + PR 複審
+### K2. Morty(Claude@OrbStack Mac mini)
 
-**角色：** 分析 JIRA 票、GitHub Issue、Crashlytics bug；產 design spec；PR 複審。
+> 🕘 **本節原本寫的是 Morty 在 Portainer 上的做法（2026-07 以前）。2026-09-15 起 Morty 跟 Rick/Summer 一樣跑在 Mac mini OrbStack**，容器 `openab-morty`、config `~/oab-morty`、volume `openab-morty-home`、映像 `openab-claude-local:0.10.0-2.1.272`。下面的 Portainer Console / Stack env 操作換成 `docker -c orbstack exec -i -u node openab-morty ...` 與 `--env-file ~/.openab-secret-morty.env`；完整現行步驟見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B2–B10。
+>
+> **角色敘述也已作廢**：Morty 不再只做「規格分析 + PR 複審」，而是能獨立跑完整個流程（見 [Part K](#part-k--三隻-bot-的逐隻設定rickmortysummer) 開頭）。
 
 **秘密檔**(`~/.openab-secret-morty.env`，chmod 600)：
 
@@ -512,6 +561,7 @@ GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained
 JIRA_TOKEN=你的_atlassian_api_token
 JIRA_BASE_URL=https://yourorg.atlassian.net
 JIRA_EMAIL=your-email@company.com
+FIGMA_TOKEN=你的_figma_personal_access_token
 ```
 
 **config.toml** 的 `inherit_env`：
@@ -520,12 +570,14 @@ JIRA_EMAIL=your-email@company.com
 [agent]
 command     = "claude-agent-acp"
 working_dir = "/home/node"
-inherit_env = ["JIRA_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL"]   # GitHub 走 gh 雙帳號,不放 GH_TOKEN
+inherit_env = ["JIRA_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL", "FIGMA_TOKEN"]   # GitHub 走 gh 雙帳號,不放 GH_TOKEN
 ```
 
-**Portainer Stack** Environment variables 要同步加入上述所有 JIRA 變數（Stack env 注入容器，config.toml inherit_env 再傳給 agent）。
+> **2026-09-15 起三隻都給完整 JIRA + Figma 四項**（不再按角色分權限）。Morty/Summer 目前沒有 skill 會用到 Figma、Summer 也用不到 JIRA，是刻意預留給未來擴充。
+>
+> ⚠️ **改秘密檔後一定要 `docker rm -f` 重建容器**：`--env-file` 只在 `docker run` 當下讀一次，執行中的容器不會感知檔案變更。重建不影響 volume 上的 Claude/gh 憑證。（2026-09-15 實際踩過：補完秘密檔內容後 `gh auth login` 一直回 `HTTP 401 Bad credentials`，根因就是這個。）
 
-**skill 安裝**（Portainer Console，user `node`）：
+**skill 安裝**（下方是 2026-07 的 Portainer Console + 手動 symlink 版，**已被 [K2a](#k2a--superpowers-純-cli-安裝法2026-07-22-起k3s-驗證)/[K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22) 的純 CLI plugin 安裝取代**，保留供沿革對照；現行指令見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B8）：
 
 ```bash
 # 1) jira-fetch：clone skill-registry 到無版本號路徑，再 symlink 進 ~/.claude/skills/
@@ -585,6 +637,10 @@ head -5 /home/node/CLAUDE.md   # 應看到「Agent Morty 核心運行指南」
 
 ### K2a — superpowers 純 CLI 安裝法（2026-07-22 起，k3s 驗證）
 
+> ⚠️ **K2a/K2b/K2c/K2d 的指令寫法要換兩處（2026-09-17 校正）**：
+> 1. **`kubectl exec deployment/openab-claude-rick`（及 `-morty`、`openab-codex-summer`）已失效**——那三個 k3s deployment 於 2026-09-15 刪除。Mac 上的三隻改用 `docker -c orbstack exec -u node openab-rick ...`。仍可用 `kubectl exec` 的只剩 `openab-claude-genie`、`openab-claude-kimi`、`openab-claude-walle`、`openab-claude-eve`。
+> 2. **`marketplace add` 一律用完整 `https://github.com/owner/repo` URL**，不要用下面這種 `owner/repo` 簡寫——簡寫會被解析成 SSH URL 去 clone，但這批映像沒裝 ssh client，一律失敗（`ssh: not found`）。當年這些簡寫能成功不代表現在還可靠（2026-08-05 踩到）。
+>
 > 取代上面 K2 的「互動 `/plugins` → 手動 symlink」流程。`jira-fetch` 目前仍走 Part K 原本的 clone + symlink 方式（技術上也能透過 `wm4n/skill-registry` 既有的 `skill-registry` plugin 純 CLI 裝，但尚未切換、不影響現況）；`wm4n.*` pipeline skill（`requirement-analysis`/`change-review`/`feature-development`/`repo-identity`/`openab-schedule`/`change-review-codex`）已改走純 CLI，見下方 [K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22)。
 
 **Claude 家族（Rick、Morty；`kubectl exec` 換成對應 pod/deployment 即可）：**
@@ -808,7 +864,8 @@ kubectl exec deployment/openab-claude-genie -n cac -- \
 
 ### K3. Rick(Claude@OrbStack Mac mini) — openspec 開發
 
-**角色：** 收到 Morty 的 spec → openspec propose→apply→archive → 推 PR → @Morty + @Summer。
+**角色：** ~~收到 Morty 的 spec → openspec propose→apply→archive → 推 PR → @Morty + @Summer。~~
+**（2026-09-15 起）** 獨立完成整個流程：需求分析 → openspec → 自我審查 → 開 PR，不再等 Morty 交棒、也不再 @ 其他 bot（`solo-feature-pipeline` skill）。另有 `jira-grill` 獨立能力（見下方）。
 
 **秘密檔**(`~/.openab-secret-rick.env`，chmod 600)：
 
@@ -816,6 +873,10 @@ kubectl exec deployment/openab-claude-genie -n cac -- \
 DISCORD_BOT_TOKEN=你的_rick_discord_bot_token
 GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained
 GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained
+JIRA_TOKEN=你的_atlassian_api_token
+JIRA_BASE_URL=https://yourorg.atlassian.net
+JIRA_EMAIL=your-email@company.com
+FIGMA_TOKEN=你的_figma_personal_access_token
 ```
 
 **Docker 啟動**（OrbStack，使用獨立 volume `openab-rick-home`）：
@@ -826,8 +887,13 @@ docker -c orbstack run -d \
   --restart unless-stopped \
   --env-file ~/.openab-secret-rick.env \
   -v openab-rick-home:/home/node \
-  ghcr.io/openabdev/openab-claude:latest
+  -v ~/oab-rick:/etc/openab:ro \
+  openab-claude-local:0.10.0-2.1.272
 ```
+
+> **映像已改為本機自建**（2026-09-15）：`ghcr.io/openabdev/openab-claude:latest` 的 Claude Code CLI 太舊（實測 2.1.177，沒有 `claude-opus-5`），104corp 私有映像又只有 amd64 build。現行做法是從 `upstream/main` 原始碼在 Apple Silicon 上原生建置，CLI 版本用 `--build-arg` 自選。建置/升級步驟見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B1（**要先關 VPN**）。
+>
+> **config 掛載已定案**：`~/oab-rick/config.toml` → 容器 `/etc/openab/config.toml`（唯讀）。改 config 只要 `docker -c orbstack restart openab-rick`；改秘密檔要 `rm -f` 重建。完整 config.toml 內容見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B3。
 
 **OpenSpec 安裝**（root 權限）：
 
@@ -846,9 +912,9 @@ docker -c orbstack exec -i -u node openab-rick sh -c '
 docker -c orbstack exec -u node openab-rick gh auth status   # wm4n + cac-william 兩個
 ```
 
-> ⚠️ K3 未列出 Rick 的 config.toml。rollout 時確認 Rick 的 config 位置（掛載或 volume 內），若 `inherit_env` 仍含 `"GH_TOKEN"` 一併移除（GitHub 改走 gh 雙帳號）。
+> ✅ **config 位置已定案（2026-09-15）**：`~/oab-rick/config.toml` 掛成 `/etc/openab:ro`，`inherit_env` 為 `["JIRA_TOKEN","JIRA_BASE_URL","JIRA_EMAIL","FIGMA_TOKEN"]`（無裸 `GH_TOKEN`）。上面這行舊的「未定案」註記已解決。
 
-**skill 安裝**（clone openab repo 後 symlink 進 `~/.claude/skills/`；同一份 checkout 也供下方 CLAUDE.md 組合使用）：
+**skill 安裝**（⚠️ 下方 clone + symlink 是 2026-07 的舊做法，**已被 [K2b](#k2b--openab-bot-skills-也改走同一套-plugin-安裝法2026-07-22) 的 plugin 安裝取代**；現行四個 plugin 見 [Part K](#part-k--三隻-bot-的逐隻設定rickmortysummer) 開頭與 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B8。保留供沿革對照）：
 
 ```bash
 docker -c orbstack exec -i -u node openab-rick sh -c '
@@ -895,10 +961,17 @@ skill 只在被對應的觸發機制呼叫時才會用到——Rick 的 persona/
 任何路徑會叫到它們，多裝這兩支不影響 Rick 原本的行為，純粹是同一個
 plugin 裡搭售，見下方「已知限制」思路一致。）
 
-需要額外在 Rick 的 `values-openab-claude.yaml`（k3s，見 Part O）補
-`secretEnv`（`JIRA_TOKEN`/`JIRA_BASE_URL`/`JIRA_EMAIL`，複用
-`morty-jira` Secret）與 `discord.trustedBotIds` 裡加入
-`jira-grill-trigger` bot 的 User ID，`helm upgrade` 後才會生效。
+⚠️ **2026-09-17 校正（Rick 已搬離 k3s）**：JIRA/Figma 憑證不再走 k3s 的
+`secretEnv`，改成寫進 `~/.openab-secret-rick.env`（四個變數）＋
+`~/oab-rick/config.toml` 的 `inherit_env`；`jira-grill-trigger` bot 的
+User ID（`1541617131442147438`）已在 Rick 的 `trusted_bot_ids` 裡，換 host
+不影響（bot 身分綁 token 不綁執行主機）。改完 `docker -c orbstack restart
+openab-rick`，不需要 `helm upgrade`。
+
+⚠️ **`jira-grill-poller` 目前是暫停狀態**（`cronjob.yaml` 的 `suspend: true`，
+2026-09-14 起）。這支 poller 仍部署在 k3s、但 trigger 對象是 Discord 上的
+Rick——Rick 搬到 Mac 不影響它能不能觸發，要恢復只要把 `suspend` 拿掉
+`kubectl apply`。目前 `jira-grill` 只能靠人類手動 @Rick 進入。
 
 **2026-09-08 分階段提問（規格 → 工程）**：grilling 提問先只問規格類
 問題（由 PM 回答），規格全部釐清、達成共識後才貼一則階段轉換里程碑
@@ -1012,9 +1085,12 @@ Figma token 的常駐 process，風險面比直接呼叫官方 REST API 大，�
 kubectl create secret generic figma-token --from-literal=FIGMA_TOKEN=<Figma PAT> -n cac
 ```
 
-**2. Rick 和 Genie 的 `values-openab-claude.yaml`（k3s，見 Part O）已經
-補上 `secretEnv`**（範圍只給這兩隻——目前只有 `jira-grill` 用得到
-`figma-fetch`，Morty/Summer 沒有對應情境，不需要加）：
+**2. `FIGMA_TOKEN` 注入方式（⚠️ 2026-09-17 校正）**：
+
+- **Genie（k3s）**：維持 `values-openab-claude.yaml` 的 `secretEnv`（下方 YAML 與 `helm upgrade` 指令仍然有效）。
+- **Rick/Morty/Summer（Mac）**：改走 `~/.openab-secret-<bot>.env` + config.toml 的 `inherit_env`，**三隻都給**（2026-09-15 放寬，不再只給 Rick）。改完 `docker -c orbstack restart`，不需要 `helm upgrade`。
+
+k3s 側的 `secretEnv` 寫法（只剩 Genie 適用）：
 
 ```yaml
 - { name: FIGMA_TOKEN, secretName: figma-token, secretKey: FIGMA_TOKEN }
@@ -1059,7 +1135,8 @@ kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update skill-
 
 ### K4. Summer(Codex@OrbStack Mac mini) — Code Review
 
-**角色：** 收到 Rick 的 PR → 用 `wm4n.change-review-codex` skill 審查 → @Rick 回報結果。
+**角色：** ~~收到 Rick 的 PR → 用 `wm4n.change-review-codex` skill 審查 → @Rick 回報結果。~~
+**（2026-09-15 起）** 跟另外兩隻一樣能獨立跑完整個流程（`solo-feature-pipeline`）；`change-review-codex` 改成「人類明確要求正式 review 某個 PR」時才觸發，不再是等 Rick 交棒。
 
 **秘密檔**(`~/.openab-secret-summer.env`，chmod 600)：
 
@@ -1067,9 +1144,15 @@ kubectl exec deployment/openab-claude-rick -n cac -- claude plugin update skill-
 DISCORD_BOT_TOKEN=你的_summer_discord_bot_token
 GH_TOKEN_WM4N=github_pat_wm4n_個人_fine_grained
 GH_TOKEN_CAC=github_pat_cac-william_公司_fine_grained
+JIRA_TOKEN=你的_atlassian_api_token
+JIRA_BASE_URL=https://yourorg.atlassian.net
+JIRA_EMAIL=your-email@company.com
+FIGMA_TOKEN=你的_figma_personal_access_token
 ```
 
-**Mac mini 主機 openab config**（`~/openab-summer/config.toml`，掛載為容器 `/etc/openab:ro`）：
+> Summer 目前沒有 skill 會用到 JIRA/Figma，這四項是 2026-09-15 統一放寬時刻意預留的（三隻一致，換 bot 做事不用重配憑證）。
+
+**Mac mini 主機 openab config**（⚠️ 現行路徑是 **`~/oab-summer/config.toml`**，不是舊的 `~/openab-summer/`；掛載為容器 `/etc/openab:ro`）：
 
 ```toml
 [discord]
@@ -1101,9 +1184,11 @@ docker -c orbstack run -d \
   --security-opt seccomp=unconfined \
   --env-file ~/.openab-secret-summer.env \
   -v openab-summer-home:/home/node \
-  -v ~/openab-summer:/etc/openab:ro \
-  ghcr.io/openabdev/openab-codex:latest
+  -v ~/oab-summer:/etc/openab:ro \
+  openab-codex-local:0.10.0-0.154.0
 ```
+
+> **映像同樣已改為本機自建**（2026-09-15）：公版 `openab-codex` 本來就是原生 arm64，換自建是為了拿到 openab 0.10.0（比 k3s 當時的 0.9.0 領先 117 個 commit）與自選的 codex CLI 版本。見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B1。
 
 > ⚠️ `--security-opt seccomp=unconfined`：Docker 預設 seccomp profile 擋住 `clone`/`unshare` syscall，導致 bwrap 無法建 namespace，所有 shell 指令都 ❌。加這個旗標放行；Docker container 本身已是沙箱，不會有安全疑慮。驗證：`docker -c orbstack exec openab-summer unshare --user echo ok` 應回 `ok`。
 
@@ -1111,7 +1196,24 @@ docker -c orbstack run -d \
 
 > ⚠️ `/home/node` 下所有檔案必須維持 `node:node` 擁有：進容器一律帶 `-u node`；**不要用 `docker cp` 塞檔案**（進去會變 root 擁有），一律用 heredoc（`docker exec -i -u node ... sh -c 'cat > 檔案'`）。agent（codex-acp/claude-agent-acp）以 node 執行，讀不到 root 擁有的 config/憑證會直接退出，Discord 端只看得到 `Connection Lost`。誤生 root 檔案的修復：`docker -c orbstack exec -u root <容器> chown -R node:node /home/node`。
 
-**superpowers 安裝**（只需一次；安裝在 `/home/node` volume，重啟後持久）：
+**skill 安裝（現行做法，2026-09-15）**——純 CLI，不進互動 session、不用 symlink：
+
+```bash
+docker -c orbstack exec -u node openab-summer codex plugin marketplace add https://github.com/obra/superpowers-marketplace
+docker -c orbstack exec -u node openab-summer codex plugin add superpowers@superpowers-marketplace
+
+docker -c orbstack exec -u node openab-summer codex plugin marketplace add https://github.com/wm4n/skill-registry
+docker -c orbstack exec -u node openab-summer codex plugin add openab-bot-skills@wm4n-skill-registry
+docker -c orbstack exec -u node openab-summer codex plugin add skill-registry@wm4n-skill-registry
+docker -c orbstack exec -u node openab-summer codex plugin add solo-bot-skills@wm4n-skill-registry
+
+docker -c orbstack exec -u node openab-summer codex plugin list   # 四個都要在
+```
+
+> Codex 端的 superpowers **marketplace 來源與 Claude 不同**（`obra/superpowers-marketplace`，不是 `anthropics/claude-plugins-official`）。`solo-bot-skills` 已補 `.codex-plugin` manifest，Codex 裝得到。
+
+<details>
+<summary>🕘 舊做法（2026-07，互動 <code>/plugins</code> + 手動 symlink）——保留供沿革對照</summary>
 
 進入容器互動 session，透過 Codex 官方 plugin marketplace 安裝：
 
@@ -1135,6 +1237,10 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 > `<owner>` 依 spec §7.2 rollout 決定（openab repo 來源）；rollout 時確認 Codex skill 掃描路徑是否真的是 `~/.codex/skills/`（尚未如 claude-agent-acp 那樣實測確認，見下方 ⚠️）。
 
 > ⚠️ **Codex skill 未完整驗證 + embed 退路**：codex-acp 是否穩定掃描 `~/.codex/skills/` 尚未像 claude-agent-acp 那樣實測確認。部署後務必在 Discord 實測 Summer 是否真的載入 `wm4n.change-review-codex` skill；若找不到（Codex 不吃 filesystem skill），退回把 `change-review-codex` 的 SKILL.md 內文直接 embed 進 `Summer-AGENTS_v2.md`，再重新部署該完整 v2 檔，不依賴 filesystem skill 載入。
+
+</details>
+
+> ✅ **上面那個「embed 退路」的疑慮已排除**：2026-07-22 在 k3s 對 Summer 實測，codex-acp 讀得到 marketplace 裝的 plugin skill（`~/.codex/plugins/cache/...`），不需要 symlink、也不需要把 SKILL.md 內文 embed 進 `Summer-AGENTS_v2.md`。
 
 **gh 雙帳號登入**（`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入；bwrap 內 gh 用 hosts.yml，不需 env token）：
 
@@ -1199,12 +1305,28 @@ docker -c orbstack exec -u node openab-summer head -5 /home/node/AGENTS.md   # �
 
 ### K5. 端對端驗證順序
 
+**現行（獨狼化後，⏳ 尚未跑過）：**
+
+1. 三顆 bot 都 healthy、Discord 上綠燈。
+2. 在 #dev-bot @ 任一隻（三隻都可以），給一個 GitHub Issue URL 或口頭需求，要求「從分析到開 PR 一手包辦」。
+3. 該隻自己跑完 `solo-feature-pipeline`：需求分析 → openspec → 實作 → **獨立 subagent 自我審查** → 開 PR。
+4. 全程**不應該**出現 @ 其他 bot 的字樣（獨狼化後不再交棒）。
+5. 人類想要第二意見 → 自己 @ 另一隻，要求 `change-review`(-codex)。
+6. 人類手動 Approve + Merge（bot 絕不 merge）。
+
+> 三隻的 persona 與 plugin 已於 2026-09-15 套用進容器，但上面這輪端對端**還沒實測過**——搬家當天的 Phase D 刻意跳過了 pipeline 那項（當時跑的還是即將被取代的接力流程，測了沒意義），基礎設施項（Discord 連線／角色路由／gh 雙帳號／JIRA-Figma 注入／usercron）都已通過。見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) Phase D。
+
+<details>
+<summary>🕘 舊版（接力 pipeline，2026-09-15 前）</summary>
+
 1. 三顆 bot 都 healthy
 2. 在 #dev-bot @Morty 發 GitHub Issue URL → Morty 分析 → @Rick
 3. Rick 執行 openspec → 推 PR → @Morty + @Summer
 4. Morty 和 Summer 各自 review → @Rick 回報
 5. Rick 通知人類：「兩位 reviewer 都 clean，可以 merge」
 6. 人類手動 merge
+
+</details>
 
 ---
 
@@ -1287,13 +1409,26 @@ disable_on_success_working_dir = "/home/node/<repo>"
 - **bot 要在該 channel**：`channel` 指到的頻道要先邀 bot 進去，否則 `Channel not found`。
 - **cron 週期限制**：day-of-week 別混用數字與名稱（`1,Mon` ❌）、別用繞回範圍（`5-2` ❌）。完整疑難排解見 `docs/cronjob.md`。
 
-### L6. 三顆 bot 的啟用位置
+### L6. 各 bot 的啟用位置
 
-| bot                       | 改 config 的位置                                                     | 寫 `cronjob.toml`                                        |
-| ------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Rick**（OrbStack）      | 見 [K3](#k3-rickclaudeorbstack-mac-mini--openspec-開發) 註記（config 位置未定案）→ 改後 `restart` | `docker -c orbstack exec -i -u node openab-rick ...`     |
-| **Summer**（OrbStack）    | host `~/openab-summer/config.toml`（掛 `/etc/openab:ro`）→ `restart` | `docker -c orbstack exec -i -u node openab-summer ...`   |
-| **Morty**（Portainer）    | Console 改 `/home/node/config.toml`（或 Stack）→ redeploy            | Console heredoc 寫 `/home/node/.openab/cronjob.toml`     |
+**Mac（OrbStack）三隻** —— 三隻的 `[cron]` 都**已經啟用**（`usercron_enabled = true`、`usercron_path = "cronjob.toml"`），只要寫 `cronjob.toml` 就生效，不用再改 config、不用 restart：
+
+| bot        | 改 config 的位置                                    | 寫 `cronjob.toml`                                      |
+| ---------- | --------------------------------------------------- | ------------------------------------------------------ |
+| **Rick**   | host `~/oab-rick/config.toml`（掛 `/etc/openab:ro`）→ 改後 `restart`   | `docker -c orbstack exec -i -u node openab-rick ...`   |
+| **Morty**  | host `~/oab-morty/config.toml`（掛 `/etc/openab:ro`）→ 改後 `restart`  | `docker -c orbstack exec -i -u node openab-morty ...`  |
+| **Summer** | host `~/oab-summer/config.toml`（掛 `/etc/openab:ro`）→ 改後 `restart` | `docker -c orbstack exec -i -u node openab-summer ...` |
+
+**k3s 四隻（genie / kimi / walle / eve）** —— `[cron]` 不是手改 config.toml，而是 Helm values 的 `agents.<name>.cron.usercronEnabled` / `usercronPath`（改了要 `helm upgrade`，chart 的 config checksum 會自動滾動重啟該 pod）；`cronjob.toml` 寫在 PVC 上：
+
+```bash
+kubectl exec -i deployment/openab-claude-genie -n cac -- \
+  sh -c 'mkdir -p /home/node/.openab && cat > /home/node/.openab/cronjob.toml' <<'EOF'
+...
+EOF
+```
+
+> 完整 `cronjob.toml` 欄位參考、疑難排解與兩邊的實作步驟見 [`CRONJOB.md`](CRONJOB.md)。
 
 ---
 
@@ -1336,7 +1471,7 @@ disable_on_success_working_dir = "/home/node/<repo>"
 - **角色必須可被 @**：Discord 角色設定要允許 @提及，否則使用者打不出這個 mention。
 - **不用把角色指派給 bot**：openab 比對的是「被 mention 的角色 ID」，與 bot 有沒有這個角色無關。
 - **別讓 bot 自己去 mention 團隊角色**：搭配 `allow_bot_messages = "mentions"/"all"` 會造成 bot 互相觸發的迴圈；人類手動 @Team Alpha 沒問題。
-- **改 config 要重讀**：`allowed_role_ids` 在 config.toml，改完要 restart / redeploy（各 bot 的 config 位置見 [Part L L6](#l6-三顆-bot-的啟用位置) / Part K）。
+- **改 config 要重讀**：`allowed_role_ids` 在 config.toml，改完要 restart / redeploy（各 bot 的 config 位置見 [Part L L6](#l6-各-bot-的啟用位置) / Part K）。
 - **多個團隊角色可並存**：`@Reviewers`、`@Team Alpha`… 各自的角色 ID 放進對應 bot 即可。
 
 ---
@@ -1349,29 +1484,40 @@ disable_on_success_working_dir = "/home/node/<repo>"
 
 ### N1. 更新指令（各 bot）
 
-**Morty**（Portainer Console，user `node`）：
+**用腳本（建議）**——已按執行環境拆成兩套，各自在對應機器上跑：
 
 ```bash
-cd /home/node/github-repo/openab
-git fetch origin docs/three-bot-pipeline && git checkout docs/three-bot-pipeline && git pull
-cat deployment-guides/Morty-CLAUDE_v2.md > /home/node/CLAUDE.md
-head -1 /home/node/CLAUDE.md      # 確認：# CLAUDE.md — Agent Morty 核心運行指南
+# 在 Mac mini 上（Rick / Morty / Summer）
+bash deployment-guides/mac/update-context.sh     # persona
+bash deployment-guides/mac/update-skills.sh      # plugin/skill
+
+# 在 k3s 機器上（genie / kimi / walle / eve）
+bash deployment-guides/k3s/update-context.sh     # persona（四隻）
+bash deployment-guides/k3s/update-skills.sh      # plugin/skill（只有 genie；opencode 三隻沒裝 skill）
 ```
 
-**Rick**（Mac mini）：
+> 兩台機器互相碰不到對方的容器（Mac 沒有 kubeconfig、k3s VM 沒有 OrbStack），所以刻意分成兩套而不是一支「自動偵測環境」的腳本。Mac 版的說明見 [`mac/README.md`](mac/README.md)。
+
+**手動逐隻跑的等價指令（Mac 三隻）**——Summer 的目標檔是 `AGENTS.md`：
 
 ```bash
+# Rick
 docker -c orbstack exec -i -u node openab-rick sh -c '
   cd /home/node/github-repo/openab &&
   git fetch origin docs/three-bot-pipeline &&
   git checkout docs/three-bot-pipeline && git pull &&
   cat deployment-guides/Rick-CLAUDE_v2.md > /home/node/CLAUDE.md &&
   head -1 /home/node/CLAUDE.md'
-```
 
-**Summer**（Mac mini；目標檔是 `AGENTS.md`）：
+# Morty（2026-09-15 起也在 Mac，不再是 Portainer Console）
+docker -c orbstack exec -i -u node openab-morty sh -c '
+  cd /home/node/github-repo/openab &&
+  git fetch origin docs/three-bot-pipeline &&
+  git checkout docs/three-bot-pipeline && git pull &&
+  cat deployment-guides/Morty-CLAUDE_v2.md > /home/node/CLAUDE.md &&
+  head -1 /home/node/CLAUDE.md'
 
-```bash
+# Summer
 docker -c orbstack exec -i -u node openab-summer sh -c '
   cd /home/node/github-repo/openab &&
   git fetch origin docs/three-bot-pipeline &&
@@ -1380,34 +1526,46 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
   head -1 /home/node/AGENTS.md'
 ```
 
+**k3s 四隻**（genie / kimi / walle / eve）—— 同一套動作，容器操作換成 `kubectl exec -i deployment/<name> -n cac`，persona 來源檔分別是 `Genie-CLAUDE_v2.md`／`Kimi-AGENTS_v2.md`／`Walle-AGENTS_v2.md`／`Eve-AGENTS_v2.md`。
+
 ### N2. 生效與相依項
 
 - **開新 thread**：在 Discord 開一條新 thread 才會重讀 context 檔與 skill；舊 thread 維持舊脈絡。
-- **skill symlink**：`git pull` 只更新 checkout 內容；`~/.claude/skills/wm4n.*`（Summer 為 `~/.codex/skills/`）的 symlink 指向 checkout，內容自動跟著新。但**新增**的 skill 目錄要**補建 symlink**（見 Part K）——pull 不會自動建。
-- **角色 handoff 相依**：若這次更新改了 skill 的 handoff 目標（如改 @角色），對應 Discord 角色要已建好且填進各 bot `allowed_role_ids`（見 Part M），否則 handoff 沒有 bot 接。
+- **skill 更新是另一件事**：`git pull` 只刷新 `/home/node/github-repo/openab` 這份 checkout，而**現行 skill 全部走 plugin 安裝**（來源是 `wm4n/skill-registry` 等 marketplace repo，不是這份 checkout）。改 skill 內容要去對應的 marketplace repo 改、bump 版本、push，再對每隻 bot 跑 `plugin marketplace update` + `plugin update`（Codex 沒有 `update`，用 remove+add）。`deployment-guides/bot-skills/` 那份**已經不是真相來源**。
+- **角色觸發相依**：`allowed_role_ids` 對應的 Discord 角色要已建好（見 Part M）。獨狼化後 bot 之間不再 handoff，但 `jira-grill-poller`/`agent-dev-poller` 這類外部 trigger bot 仍靠 `trusted_bot_ids` 進來，改動時別把它們一起拿掉。
 - **rollout 驗證**：對照 `bot-skills/ROLLOUT-CHECKLIST.md` 做端對端實測。
 
 ---
 
-## Part O — 遷移到 k3s
+## Part O — 兩個執行環境的分工（Mac ↔ k3s）
 
-> 把三隻 bot 從 Mac mini(OrbStack) / Portainer 搬到單節點 k3s 的**完整步驟另見 [`K3S.md`](K3S.md)**。
+**現況：Mac 跑 Rick/Morty/Summer，k3s 跑 genie/kimi/walle/eve。** 兩邊都還活著，不是「舊/新」的關係。
+
+| 方向 | 時間 | 內容 | 文件 |
+| --- | --- | --- | --- |
+| Mac/Portainer → k3s | 2026-07-21 | 三隻整組搬上單節點 k3s，兩個 release（`openab-claude`：Rick+Morty；`openab-codex`：Summer） | [`K3S.md`](K3S.md) |
+| 新增 agent | 2026-07-24 起 | genie（104corp 專案專用）加進 `openab-claude` release；2026-09-10 再加 kimi/walle/eve（opencode + OpenRouter） | [`K3S.md`](K3S.md)「未來加 agent」、[`bot-setup-opencode-kimi.md`](bot-setup-opencode-kimi.md) |
+| **k3s → Mac（回程）** | **2026-09-15** | **Rick/Morty/Summer 永久搬回 Mac mini OrbStack、改用本機自建 image；genie 留在 k3s**（`openab-claude` release 只移除 rick/morty 的 agents 區塊，**不是** `helm uninstall`；`openab-codex` release 整個 uninstall） | [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) |
+
+> k3s 的 values 檔在 `k3s/`；設計依據 `docs/superpowers/specs/2026-07-20-k3s-migration-design.md`、實作計畫 `docs/superpowers/plans/2026-07-20-k3s-migration.md`。
 >
-> 策略摘要：官方 `charts/openab` Helm chart 當骨架，分兩個 release（`openab-claude`：Rick+Morty，RuntimeDefault；`openab-codex`：Summer，seccomp Unconfined），同一 namespace `cac`（團隊共用 namespace）。Discord token 走 K8s Secret、Morty JIRA 走 secretEnv、**GitHub 雙帳號與 context/skill 沿用 `kubectl exec` bootstrap**（＝ Part E/F/K/N 的 k8s 版）。cutover 用 sleep 隔離 bootstrap 達近零停機。
->
-> values 檔在 `k3s/`；設計依據見 `docs/superpowers/specs/2026-07-20-k3s-migration-design.md`、實作計畫見 `docs/superpowers/plans/2026-07-20-k3s-migration.md`。
+> ⚠️ **回程時踩到、下次一定會再遇到的兩個坑**（細節見 `ORBSTACK-ROLLBACK.md`）：
+> 1. 從 values 移除一個 agent 後 `helm upgrade` 會失敗（PVC spec 建立後不可變，Helm 想 patch 掉 `storageClassName` 之類的欄位）——要先手動 `kubectl delete deployment` + `kubectl delete pvc` 清掉，helm 才沒東西可 patch。
+> 2. Helm 多個 `-f` 是**深度合併不是後蓋前**：`values-openab-claude.yaml` 拿掉 rick/morty 之後，`values-secret-claude.yaml`（gitignored、存 Discord token）裡自己那份 `agents.rick`/`agents.morty` 會讓它們**復活**（NOTES 顯示 `Agents deployed: genie, morty, rick`、command 欄空白）。移除 agent 要**同步檢查每一個 `-f` 檔案**。
 
 ---
 
 ## 維運
 
+> 容器名：`openab-rick`／`openab-morty`／`openab-summer`（下表用 `<容器>` 代稱）。k3s 那四隻的維運對照見 [`K3S.md`](K3S.md)「維運對照」。
+
 | 動作     | 指令                                                                                     |
 | -------- | ---------------------------------------------------------------------------------------- |
 | 看狀態   | `docker -c orbstack ps`                                                                  |
-| 看 log   | `docker -c orbstack logs -f openab-claude`                                               |
-| 重啟     | `docker -c orbstack restart openab-claude`                                               |
-| 進容器   | `docker -c orbstack exec -it -u node openab-claude bash`                                 |
-| 更新映像 | `docker -c orbstack pull ghcr.io/openabdev/openab-claude:latest` → `rm -f` → 重跑 Part D |
+| 看 log   | `docker -c orbstack logs -f <容器>`                                                      |
+| 重啟     | `docker -c orbstack restart <容器>`                                                      |
+| 進容器   | `docker -c orbstack exec -it -u node <容器> bash`                                        |
+| 更新映像 | **自建，不是 pull**：重跑 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B1（關 VPN → `git archive upstream/main` → `docker build --build-arg <CLI 版本>`）→ `rm -f` → 用新 tag 重跑該 bot 的 `docker run` |
 
 **改設定的規則(重要):**
 
@@ -1459,10 +1617,17 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 | **`gh auth login`/`switch` 拒絕、說 GH_TOKEN 環境變數存在**                                       | env 有裸 `GH_TOKEN`                                                                | 改用 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC`,別設裸 `GH_TOKEN`                                              |
 | **[Codex]** 在 openab config `args` 加 `--dangerously-bypass-approvals-and-sandbox` 導致 Connection Lost | `codex-acp` 是獨立 binary，不接受標準 `codex` CLI 的此 flag | 改用 `sandbox_mode = "danger-full-access"` 寫進容器 `~/.codex/config.toml`（top-level）        |
 | **[Codex]** `sandbox_permissions = ["network-full-access"]` 加了沒效果                              | `sandbox_permissions` 不是 `codex-acp` 合法的 config key（會被 silently ignore）   | 同上，用 `sandbox_mode = "danger-full-access"`（參見 openab issue #1047）                          |
+| **改好秘密檔後 `gh auth login` 仍回 `HTTP 401 Bad credentials`**（2026-09-15 實際踩過） | `--env-file` **只在 `docker run` 當下讀一次**，容器不會感知檔案之後的變更——容器裡的 `GH_TOKEN_CAC` 還是舊值 | `docker -c orbstack rm -f <容器>` 後用同一顆 volume 重建（Claude/Codex 憑證、gh 登入、plugin 都在 volume 上，不用重做） |
+| `gh auth login` 回 `missing required scope 'read:org'`                                              | classic PAT 沒勾 `read:org`                                                        | 回 GitHub 網頁把**既有** classic PAT 補勾這個 scope（不用重新產生 token），再重登                  |
+| `plugin marketplace add owner/repo` 失敗、log 顯示 `ssh: not found` / `SSH authentication failed`   | 簡寫被解析成 SSH URL 去 clone，但映像沒裝 ssh client                               | 一律用完整 `https://github.com/owner/repo`（走 `gh auth setup-git` 設好的 HTTPS credential helper） |
+| Discord 回報 `Agent exceeded hard timeout (1800s)`                                                  | openab broker 對單一 prompt 有 30 分鐘硬上限；`solo-feature-pipeline` 一路做完可能超過 | config.toml 的 `[pool]` 加 `prompt_hard_timeout_secs = 14400`（Rick/Morty 已設，Summer 目前仍是預設 1800s）→ restart |
+| 自建 image 時 `docker build` 連 crates.io 報 SSL 憑證錯誤，或加了公司憑證後改回 `403`               | **VPN 開著**：104corp 公司網路對外部連線做 TLS 攔截並擋掉 cargo registry。`docker run` 測試正常 ≠ BuildKit 正常（不同網路環境） | **關掉 VPN 再 build**（已實測是唯一根因）                                                          |
 
 ---
 
 ## 附錄:完整範例檔
+
+> 🕘 **這是「從零開一顆新 bot」的最小範例**（單顆、官方映像、無 cron/角色/skill）。**現行三隻的真實設定不長這樣**——映像是本機自建、config 有 `allow_bot_messages`/`trusted_bot_ids`/`allowed_role_ids`/`[cron]`/`prompt_hard_timeout_secs`、`inherit_env` 有四個 JIRA+Figma 變數。三隻逐字可抄的 config.toml 見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B3（用本機 chart 對 k3s values 跑 `helm template` 印出來的實際內容）。
 
 ### `~/.openab-secrets.env`(chmod 600,放在 `~/oab` 之外)
 

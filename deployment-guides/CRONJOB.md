@@ -3,6 +3,8 @@
 > 一份可獨立閱讀的 `cronjob.toml` 參考。openab **內建**排程，不需外部 cron：到點時把一句 prompt 當成「使用者輸入」丟給 agent，agent 跑完**回覆到指定 channel/thread**（＝定時執行任務 + 回報狀態）。
 >
 > 權威來源：repo 內 `docs/cronjob.md`、`docs/slash-commands.md`。部署脈絡見 `deployment-guides/BOT_SETUP.md` Part L。
+>
+> **現況（2026-09-17）**：七隻 bot 的 usercron 都已啟用——Rick/Morty/Summer 在 **Mac mini OrbStack**（config 在 host `~/oab-<name>/config.toml`）、genie/kimi/walle/eve 在 **k3s**（config 由 Helm values 渲染）。逐環境的操作步驟見 [§11](#11-實作步驟mac-orbstack--k3s)。
 
 ---
 
@@ -19,7 +21,7 @@
 - [8. 進階 B：disable_on_success 目標達成自停](#8-進階-bdisable_on_success-目標達成自停)
 - [9. 行為特性](#9-行為特性)
 - [10. 已知限制](#10-已知限制)
-- [11. 實作步驟（Morty / Mac mini）](#11-實作步驟morty--mac-mini)
+- [11. 實作步驟（Mac OrbStack / k3s）](#11-實作步驟mac-orbstack--k3s)
 - [12. 疑難排解](#12-疑難排解)
 - [13. 何時改用外部排程](#13-何時改用外部排程)
 
@@ -200,6 +202,10 @@ bot：✅ 已寫入 cronjob.toml，1 分鐘內生效
 
 好處：手機上跟 bot 聊天就能改排程，不用進主機。
 
+> **Rick / Morty / Summer / genie 這四隻裝了 `openab-schedule` skill**（`openab-bot-skills` 與 `solo-bot-skills` 兩個 plugin 各包一份），裡面就是「怎麼正確寫 `cronjob.toml`」的步驟。⚠️ 但**別假設它一定會走這條路**——實測過 bot 改用 Claude Code 內建的 `CronCreate`（完全不同、session-scoped 的機制），必要時明確指名要用 `openab-schedule` skill，見 [§11 的實測記錄](#實測踩過叫-bot-自己排程時它可能用錯機制)。
+>
+> **kimi / walle / eve（opencode）目前沒裝任何 skill**（opencode 走 `~/.claude/skills/` 目錄而非 `claude plugin`，當初決定先不接，見 [`bot-setup-opencode-kimi.md`](bot-setup-opencode-kimi.md)）。要它們排程就自己照 [§11 B](#b-k3s--genie--kimi--walle--eve) 寫 `cronjob.toml`，別指望它們知道格式。
+
 ---
 
 ## 8. 進階 B：disable_on_success 目標達成自停
@@ -252,16 +258,124 @@ disable_on_success_working_dir = "/home/node/<repo>"
 
 ---
 
-## 11. 實作步驟（Morty / Mac mini）
+## 11. 實作步驟（Mac OrbStack / k3s）
 
-> 共通鐵則：一律 `-u node`、heredoc 寫檔，**絕不 `docker cp`**（會變 root 擁有 → agent 讀不到 → Discord `Connection Lost`）。cronjob.toml 一律在 `/home/node/.openab/`。先備好一個 **bot 已在裡面的頻道 ID**（cron 輸出是伺服器端注入，post 到 `channel` 就會發，**不需要**該頻道在 `allowed_channels`）。
+> **現況（2026-09-17）：七隻 bot 的 `[cron]` 都已經啟用**，所以日常只要做「寫 `cronjob.toml`」這一步（熱重載，不用 restart）。下面各節的「-0 加 `[cron]` 段」只有**開新 bot** 時才需要。
+>
+> | 環境 | bot | config 在哪 | 改 config 怎麼生效 |
+> | --- | --- | --- | --- |
+> | Mac（OrbStack） | Rick / Morty / Summer | host `~/oab-<name>/config.toml`（唯讀掛成 `/etc/openab`） | `docker -c orbstack restart <容器>` |
+> | k3s（namespace `cac`） | genie / kimi / walle / eve | Helm values `agents.<name>.cron.*`（chart 渲染成 ConfigMap） | `helm upgrade`（config checksum 自動滾動重啟該 pod） |
 
-### A. Morty（Portainer，只有網頁 Console）
+> **共通鐵則**
+>
+> - 一律 `-u node`、heredoc 寫檔，**絕不 `docker cp`**（會變 root 擁有 → agent 讀不到 → Discord `Connection Lost`）。k3s 的 `kubectl exec` 天生就是 pod 使用者（uid 1000/node），沒有這個坑。
+> - `cronjob.toml` 一律在 `/home/node/.openab/`（PVC／volume 上，重啟不掉）。
+> - ⚠️ **`channel` 必須填真正的「頻道 ID」，不能填 thread ID**：openab 觸發排程時一律嘗試在 `channel` 底下**開一條新 thread**，而 Discord 不允許 thread 底下再開 thread，會報 `failed to create thread: Cannot execute action on this channel type`。要貼進現有 thread 才另外設 `thread_id`（與 `channel` 並存）。
+> - 先備好一個 **bot 已在裡面的頻道 ID**（cron 輸出是伺服器端注入，post 到 `channel` 就會發，**不需要**該頻道在 `allowed_channels`）。
+> - ⚠️ **要確認 runtime 真的吃到 `[cron]`，看的是 `/etc/openab/config.toml`**（openab 實際讀的掛載路徑），**不是** `~/.openab/config.toml`——後者那個目錄只放動態的 `cronjob.toml`，兩個是不同檔案，很容易搞混。
 
-Containers → Morty 容器 → **Console**（Command `/bin/sh`、User `node`）：
+### A. Mac（OrbStack）—— Rick / Morty / Summer
+
+**A-0.（只有開新 bot 才要）加 `[cron]` 段**——config 是 host 上的檔案，直接改再 restart：
 
 ```bash
-# 1) 確認 config 路徑 + 有沒有既有 cron（Portainer 版 config 在 /home/node/config.toml）
+BOT=rick     # rick / morty / summer
+grep -qi '^\[cron\]' ~/oab-$BOT/config.toml \
+  && echo "⚠️ 已有 cron 設定，先看內容別亂加" \
+  || printf '\n[cron]\nusercron_enabled = true\nusercron_path    = "cronjob.toml"\n' >> ~/oab-$BOT/config.toml
+
+docker -c orbstack restart openab-$BOT
+docker -c orbstack exec -u node openab-$BOT grep -A2 '^\[cron\]' /etc/openab/config.toml   # 確認 runtime 真的吃到
+```
+
+**A-1. 寫排程**（測試用每分鐘，`channel` 換成你的頻道 ID）：
+
+```bash
+docker -c orbstack exec -i -u node openab-rick sh -c \
+  'mkdir -p /home/node/.openab && cat > /home/node/.openab/cronjob.toml' <<'EOF'
+[[jobs]]
+schedule    = "* * * * *"
+channel     = "你的_channel_id"
+message     = "usercron 測試，回一句 pong 就好"
+sender_name = "usercron-test"
+timezone    = "Asia/Taipei"
+EOF
+```
+
+**A-2. 驗證**：
+
+```bash
+docker -c orbstack logs --tail 80 openab-rick 2>&1 | grep -iE "cron|schedul"   # 找 usercron file changed, reloading
+```
+
+### B. k3s —— genie / kimi / walle / eve
+
+**B-0.（只有開新 bot 才要）啟用 usercron**——這裡**不是**手改 config.toml，而是改 values 檔的 `agents.<name>` 區塊：
+
+```yaml
+    cron:
+      usercronEnabled: true
+      usercronPath: "cronjob.toml"
+```
+
+```bash
+cd deployment-guides/k3s
+helm upgrade openab-claude ../../charts/openab -n cac \
+  -f values-openab-claude.yaml -f values-secret-claude.yaml   # opencode 三隻另外帶各自的 overlay -f
+kubectl exec deployment/openab-claude-genie -n cac -- grep -A2 '^\[cron\]' /etc/openab/config.toml
+```
+
+**B-1. 寫排程**（`cronjob.toml` 落在該 agent 的 PVC 上，pod 重啟不掉）：
+
+```bash
+kubectl exec -i deployment/openab-claude-genie -n cac -- \
+  sh -c 'mkdir -p /home/node/.openab && cat > /home/node/.openab/cronjob.toml' <<'EOF'
+[[jobs]]
+schedule    = "* * * * *"
+channel     = "你的_channel_id"
+message     = "usercron 測試，回一句 pong 就好"
+sender_name = "usercron-test"
+timezone    = "Asia/Taipei"
+EOF
+```
+
+**B-2. 驗證**：
+
+```bash
+kubectl logs deploy/openab-claude-genie -n cac --tail=80 | grep -iE "cron|schedul"
+```
+
+### 驗證 OK 後：換真排程或清空測試
+
+`* * * * *` 每分鐘會洗頻道，測完務必換掉。重寫 `cronjob.toml` 成真排程，或清空停用（不用 restart，1 分鐘內熱重載）：
+
+```bash
+# Mac
+docker -c orbstack exec -i -u node openab-rick sh -c 'cat > /home/node/.openab/cronjob.toml' <<'EOF'
+# 無 job；或貼上你的真排程
+EOF
+
+# k3s
+kubectl exec -i deployment/openab-claude-genie -n cac -- sh -c 'cat > /home/node/.openab/cronjob.toml' <<'EOF'
+# 無 job；或貼上你的真排程
+EOF
+```
+
+### 實測踩過：叫 bot 自己排程時，它可能用錯機制
+
+2026-07-23 請 Rick 設一個每分鐘的排程，它沒有走 `openab-schedule` skill 寫 `~/.openab/cronjob.toml`，而是呼叫了 **Claude Code 內建、session-scoped 的 `CronCreate` 工具**（完全不同的機制，關掉 session 就停、7 天到期）；之後被要求檢查時，還**連續兩次忽略指令、自己跑 `date` 編了一句「🏓 usercron ping」文字回覆**。
+
+- **怎麼分辨真假訊號**：真的 usercron 觸發是**獨立冒出的新訊息**、格式固定為 `🕐 [sender_name]: message`；假的是黏在對話回覆裡、agent 自己編的句子（時間戳還可能跟提問時間對不上，UTC vs 台北差 8 小時）。
+- **解法**：**換一條全新的 Discord thread**（舊 thread 已經卡在被干擾的狀態），並明確指名「使用 `openab-schedule` skill，不要用 `CronCreate`」。
+
+<details>
+<summary>🕘 舊做法：Portainer 網頁 Console（2026-09-15 前 Morty 用的）——目前沒有 bot 在 Portainer 上</summary>
+
+Containers → 該容器 → **Console**（Command `/bin/sh`、User `node`）。Portainer 版的 config 在 `/home/node/config.toml`（不是掛載的 `/etc/openab`）：
+
+```bash
+# 1) 確認 config 路徑 + 有沒有既有 cron
 ls -l /home/node/config.toml
 grep -ni cron /home/node/config.toml            # 沒輸出 = 乾淨可加
 
@@ -270,7 +384,7 @@ grep -qi cron /home/node/config.toml \
   && echo "⚠️ 已有 cron 設定，先看內容別亂加" \
   || printf '\n[cron]\nusercron_enabled = true\nusercron_path    = "cronjob.toml"\n' >> /home/node/config.toml
 
-# 3) 寫排程（測試用每分鐘，channel 換成你的 ID）
+# 3) 寫排程
 mkdir -p /home/node/.openab
 cat > /home/node/.openab/cronjob.toml <<'EOF'
 [[jobs]]
@@ -282,67 +396,13 @@ timezone    = "Asia/Taipei"
 EOF
 
 # 4) 確認寫好
-grep -n cron /home/node/config.toml             # 要看到 [cron] 三行
+grep -n cron /home/node/config.toml
 cat /home/node/.openab/cronjob.toml
 ```
 
-然後 **Portainer → Containers → Morty 容器 → Restart**（config 改過要重讀；之後改 cronjob.toml 不用）。
-驗證：Portainer → 該容器 → **Logs** 找 `usercron file changed, reloading`；Discord 頻道每分鐘冒出一則回覆。
+然後 **Portainer → Containers → 該容器 → Restart**。驗證：該容器 → **Logs** 找 `usercron file changed, reloading`。
 
-### B. Mac mini（Rick / Summer，走 `docker -c orbstack`）
-
-以 `openab-summer` 為例，Rick 換成 `openab-rick`。**差別只在 config 在哪**：
-
-```bash
-# 0) 先查 config 位置（Summer 掛在 host、Rick 未定案）
-docker -c orbstack inspect openab-summer --format 'Args: {{.Args}}'
-docker -c orbstack inspect openab-summer \
-  --format '{{range .Mounts}}{{.Source}} => {{.Destination}} ({{if .RW}}rw{{else}}ro{{end}}){{"\n"}}{{end}}'
-```
-
-- **config 從 host 唯讀掛載**（Summer 應是 `~/openab-summer => /etc/openab (ro)`）→ 改 host 檔：
-  ```bash
-  grep -qi cron ~/openab-summer/config.toml \
-    && echo "⚠️ 已有 cron 設定，先看別亂加" \
-    || printf '\n[cron]\nusercron_enabled = true\nusercron_path    = "cronjob.toml"\n' >> ~/openab-summer/config.toml
-  ```
-- **config 在容器 volume**（Rick 若是 `/home/node/config.toml`）→ 容器內加：
-  ```bash
-  docker -c orbstack exec -u node openab-rick sh -c \
-    'grep -qi cron /home/node/config.toml && echo "⚠️ 已有 cron" || printf "\n[cron]\nusercron_enabled = true\nusercron_path    = \"cronjob.toml\"\n" >> /home/node/config.toml'
-  ```
-
-restart + 寫排程 + 驗證：
-
-```bash
-# 重啟讓 [cron] 生效
-docker -c orbstack restart openab-summer
-
-# 寫測試排程
-docker -c orbstack exec -i -u node openab-summer sh -c \
-  'mkdir -p /home/node/.openab && cat > /home/node/.openab/cronjob.toml' <<'EOF'
-[[jobs]]
-schedule    = "* * * * *"
-channel     = "你的_channel_id"
-message     = "usercron 測試，回一句 pong 就好"
-sender_name = "usercron-test"
-timezone    = "Asia/Taipei"
-EOF
-
-# 驗證
-docker -c orbstack logs --tail 80 openab-summer 2>&1 | grep -iE "cron|schedul"
-```
-
-### 驗證 OK 後：換真排程或清空測試
-
-`* * * * *` 每分鐘會洗頻道，測完務必換掉。重寫 `cronjob.toml` 成真排程，或清空停用：
-
-```bash
-# 清空（= 移除所有動態 job，不用 restart）
-cat > /home/node/.openab/cronjob.toml <<'EOF'
-# 無 job；或貼上你的真排程
-EOF
-```
+</details>
 
 ---
 
@@ -358,6 +418,9 @@ EOF
 | usercron 沒重載              | 檔沒存好 / 路徑錯                       | log `usercron file changed, reloading`；確認在 `~/.openab/` |
 | usercron parse error         | TOML 語法錯                             | log `failed to parse usercron file`                  |
 | goal job 沒自動停            | 指令沒 exit 0，或輸出不含 match         | 手動跑 `disable_on_success` 指令確認兩條件都滿足     |
+| `failed to create thread: Cannot execute action on this channel type` | `channel` 填成了 **thread ID**。openab 一律嘗試在 `channel` 底下開新 thread，Discord 不允許 thread 底下再開 thread | `channel` 換成真正的頻道 ID；要貼進現有 thread 才另外設 `thread_id`（與 `channel` 並存） |
+| 設定看起來對，但 runtime 沒吃到 `[cron]` | 查錯檔案：`~/.openab/config.toml` 只是動態 `cronjob.toml` 的所在目錄，**不是** openab 讀的 config | 查 `/etc/openab/config.toml`（掛載路徑）。k3s 上也可直接看 chart 渲染的 ConfigMap：`kubectl get configmap <name> -n cac -o yaml` |
+| bot 說「已排好」但頻道什麼都沒來 | bot 可能沒走 `openab-schedule` skill，而是用了 Claude Code 內建的 `CronCreate`（session-scoped，關掉就停），甚至自己編了一句假的 ping | 對照真訊號格式 `🕐 [sender_name]: message`（獨立新訊息）；換一條全新 thread 並明確指名用 `openab-schedule` skill。見 [§11](#實測踩過叫-bot-自己排程時它可能用錯機制) |
 
 ---
 
@@ -374,3 +437,11 @@ config-driven cron 覆蓋 80%「到點送一句話」的情境。進階需求改
 | 每次執行獨立隔離        | K8s CronJob（每次一個 Pod）             |
 
 > openspec 開發那種可能跑很久的任務，別用 usercron 排太密（有 overlap 保護會跳過，但單次 >5 分鐘官方建議走外部排程）。
+
+**本 repo 裡已經走外部排程的三個實例**（都在 `deployment-guides/k3s/`，跟 openab 的 Helm release 分開部署）：
+
+| CronJob | 做什麼 | 為什麼不用 usercron |
+| --- | --- | --- |
+| `jira-grill-poller/` | 偵測 `grill-me` 票／新回覆，用 `jira-grill-trigger` bot @mention 目標 bot | **全程不經過 LLM**，只有真的偵測到才觸發一次 LLM turn；用 usercron 會變成每輪都燒一次 LLM。⚠️ 目前 `suspend: true` 暫停中 |
+| `agent-dev-poller/` | 偵測 `ready-for-agent-dev` label，觸發 genie 全自動開發 | 同上；另外要控制「每輪只認領一張票」與「只在離峰時段跑」，這些邏輯 usercron 做不到 |
+| `usage-stats/` | 把各 CLI 的 transcript／SQLite 轉成正規化事件 | 純資料處理、不需要 agent；要固定每天跑且不能漏（transcript 有保留期限）。⚠️ **尚未部署** |

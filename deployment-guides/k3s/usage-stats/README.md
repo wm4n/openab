@@ -3,6 +3,51 @@
 從各 agent CLI 自己的儲存挖出使用統計。**不改 openab 本體**，資料源已在 k3s
 節點實機驗證（工具與結果見 `../verify-stats-sources.py` 與 `../README.md`）。
 
+> ## ⚡ 狀態（2026-09-17）
+>
+> **❌ 尚未部署。** 程式碼（13 個 task、203 個 unittest）已完成並 push 在
+> `docs/three-bot-pipeline` branch，但：
+>
+> - 靜態 PV／`usage-stats-scripts` ConfigMap／`cronjob.yaml` **都還沒 apply**（步驟見 `../../K3S.md`「使用統計 CronJob」）。
+> - 「端對端驗收」（人工對照 Discord 當天實際訊息數，確認真人任務數對得上）**還沒做**。這步不能省——統計系統最常見的失敗模式是「跑得很順、數字全錯」，而且錯了沒人發現。
+>
+> ### 🔴 涵蓋範圍已經變了，部署前先讀這段
+>
+> `cronjob.yaml` 用 `hostPath: /data/william/openab` 讀 **k3s 節點上**的 agent
+> PVC。**2026-09-15 起 Rick / Morty / Summer 已搬到 Mac mini OrbStack**，資料在
+> 那台機器的 docker volume（`openab-rick-home` 等）裡，這支 CronJob **永遠收不到
+> 那三隻**。所以：
+>
+> | bot | 活資料在哪 | 這支 CronJob 收得到嗎 |
+> | --- | --- | --- |
+> | genie / kimi / walle / eve | k3s 節點 `/data/william/openab/agent-*` | ✅ |
+> | rick / morty / summer | Mac mini 的 docker volume | ❌ 完全收不到 |
+>
+> 而且**那三隻在 k3s 上的歷史資料已經沒了**——PVC 於搬家當天刪除。唯一可能的
+> 來源是 `openab-archive.sh` 建的鏡像（`/data/william/openab-archive/mirror`，
+> 每週日 02:00，最後一次應是 09-14），要用下面的 `--archive-root` 回填；動手前
+> 先確認鏡像真的有跑到：
+>
+> ```bash
+> sudo ls -l /data/william/openab-archive/mirror/{rick,morty,summer} 2>/dev/null
+> sudo tail -5 /var/log/openab-archive.log
+> ```
+>
+> **要把 Mac 那三隻納入統計**，2026-09-17 已備妥一條路徑：
+> [`../../mac/openab-archive.sh`](../../mac/README.md) 會把三隻的 transcript 鏡像成
+> **與本目錄 `collect.py` 的 `_MIRROR_LAYOUT` 相同的佈局**
+> （`<bot>/{claude-projects,codex-sessions,openab}`），所以直接餵給 `--archive-root`
+> 就能吃：
+>
+> ```bash
+> python3 collect.py --root <不存在的目錄> --out <輸出目錄> \
+>   --archive-root ~/openab-archive/mirror
+> ```
+>
+> ⚠️ 但那支腳本**還沒在目標 Mac 上掛起來**，`cleanupPeriodDays` 也還沒調高——在那
+> 之前，那三隻的 transcript 仍在以 30 天為期滾動消失。兩個步驟見
+> [`../../mac/README.md`](../../mac/README.md)。
+
 設計依據：`docs/superpowers/specs/2026-09-10-bot-usage-stats-design.md`
 實作計畫：`docs/superpowers/plans/2026-09-11-bot-usage-stats.md`
 建置記錄與經驗教訓：[`RETROSPECTIVE.md`](RETROSPECTIVE.md)

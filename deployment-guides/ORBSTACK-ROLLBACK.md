@@ -1,8 +1,19 @@
 # 三 Bot 從 k3s 搬回 Mac(OrbStack)Runbook
 
+> # ✅ 已於 2026-09-15 執行完成
+>
+> **這不再是待辦的 runbook，是已完成遷移的記錄 + Mac 三隻的現行維運依據。**
+>
+> - **目標機器**：Mac mini `CAC@2771`，hostname **`2771-Z411210004.local`**（使用者帳號 `CAC`）。⚠️ 注意 **`2771-macair.local` 是另一台機器**——同一套 orbstack+colima 設定被複製到至少兩台 Mac 上，撰寫這份文件時曾誤判過，之後遇到「這是哪台機器」要直接問，別靠特徵推論。
+> - **結果**：Mac 上 `openab-rick`／`openab-morty`／`openab-summer` 三個容器 `Up (healthy)`、log 確認 `discord bot running`；k3s 端只剩 `openab-claude-genie`（外加後來的 kimi/walle/eve）、`openab-codex` release 已 `helm uninstall`、三隻的 PVC 都已刪除。
+> - **驗收**：Phase D 除了「完整 pipeline 一輪」之外全數通過（Discord 上線／角色觸發／JIRA-Figma 注入／usercron）；**pipeline 那項刻意跳過**——當時要驗的是即將被獨狼化取代的接力流程，測了沒意義，**至今仍未補驗**。細節見下方 [Phase D](#phase-d--端對端驗證)。
+> - **後續變更**：當天稍晚完成**獨狼化**（三隻各自獨立跑完整個流程，`HANDOFF_*` 環境變數整組移除、三隻都裝 `solo-bot-skills`）。persona 與 plugin **已套用進容器，端對端尚未實測**。
+> - **這份文件現在拿來做什麼**：① 三隻的 config.toml / docker run / bootstrap 逐字依據（改設定、換 token、重建容器時回來查）；② 重建或升級自建 image 的步驟（[B1](#b1-自建-image原生-arm64三隻都用這個)）；③ 這次踩過的坑清單（[疑難排解](#疑難排解本次特有的坑)）。
+>
+> ---
+>
 > 把 **Rick / Morty / Summer** 從 k3s(namespace `cac`)搬回**目標 Mac（OrbStack，Apple Silicon，會連 104corp 公司網路/VPN）**。
-> **⚠️ 這份文件的操作記錄與實測（Phase B1 自建 image、config.toml 相容性等）是在另一台機器上做的，不是實際要部署的目標機器**——目標機器基本狀態（已裝 OrbStack、arm64、同一個公司網路）已確認相容，但沒有實際連過、沒做過「0. 前提盤點」那些機器現況檢查，執行前請先自己在目標機器上核對一次（見下方 0-1）。
-> **genie 維持留在 k3s**（104corp 專案專用、獨立 pipeline，不隨這次遷移）。
+> **genie 維持留在 k3s**（104corp 專案專用、獨立 pipeline，不隨這次遷移；2026-09-10 加入的 kimi/walle/eve 同樣留在 k3s）。
 >
 > **範圍決策**（2026-09-15 確認）：
 >
@@ -28,7 +39,7 @@
 - [Phase C — 翻轉（唯一停機點）](#phase-c--翻轉唯一停機點)
 - [Phase D — 端對端驗證](#phase-d--端對端驗證)
 - [Rollback（cutover 當下出包怎麼退）](#rollbackcutover-當下出包怎麼退)
-- [事後待辦（穩定數天後才做）](#事後待辦穩定數天後才做)
+- [事後待辦（狀態更新至 2026-09-17）](#事後待辦狀態更新至-2026-09-17)
 - [疑難排解（本次特有的坑）](#疑難排解本次特有的坑)
 
 ---
@@ -45,6 +56,10 @@ docker -c orbstack volume ls | grep openab      # 有沒有殘留的 openab-* vo
 ```
 
 若這台機器上已經有 `openab-rick`/`openab-morty`/`openab-summer` 之類的容器或 volume（例如之前也手動試過），先跟自己確認那是不是可以蓋掉的舊嘗試，不要假設是空機器。
+
+> ✅ **2026-09-15 實際檢查結果**：目標機器上留著**兩個月前、遷去 k3s 之前**的舊容器與 volume（`openab-rick`／`openab-summer`，公版 image，已 Exited 8 週；volume `openab-rick-home`／`openab-summer-home`）——`docker run -v` 用同名 volume 會直接接到那份舊資料。依「全新 bootstrap」的範圍決策，全部清掉重來。
+>
+> 另外兩個當時發現、不影響執行的事實：目標機器**沒裝 `gh` CLI**（不影響——自建 image 用 host 端 local git clone 跑 `git archive`，容器內部的 gh 是隨 image 內建）；host 端**不需要每隻 bot 各一份 repo clone**（那是舊 bootstrap 的習慣殘留，host clone 只是拿來當 build context，一份共用即可。真正要「每隻各一份」的是容器內部，見 B7）。
 
 ### 0-2. 下面這些是已經在別台機器上實測驗證過、跟機器身分無關的技術結論（供對照）
 - **k3s 端 release 結構**：`openab-claude`（Rick + Morty + **genie**）、`openab-codex`（只有 Summer）。⚠️ **退役時絕不能 `helm uninstall openab-claude`**——那會把 genie 也一起殺掉。只能改 `values-openab-claude.yaml` 移除 rick/morty 的 `agents.*` 區塊、保留 `genie:` 區塊，再 `helm upgrade`。`openab-codex` release 只有 Summer，可以整個 `helm uninstall`。
@@ -128,7 +143,7 @@ docker -c orbstack run --rm node:22-trixie-slim sh -c 'npm view @openai/codex ve
 docker -c orbstack run --rm node:22-trixie-slim sh -c 'npm view @agentclientprotocol/codex-acp version'
 ```
 
-**B1-3. 建置**（2026-09-15 執行時查到的最新版本是 claude-code `2.1.272`、codex `0.154.0`、codex-acp `1.11.0`——之後執行請用 B1-2 查到的當下最新版本，不要照抄這幾個數字）：
+**B1-3. 建置**（2026-09-15 執行時查到的最新版本是 claude-code `2.1.272`、codex `0.154.0`、codex-acp `1.11.0`；**目前線上跑的就是這兩個 tag**——但之後要重建/升級請用 B1-2 查當下最新版本，不要照抄這幾個數字）：
 
 ```bash
 cd /tmp/openab-build-ctx
@@ -303,6 +318,7 @@ inherit_env = ["JIRA_TOKEN","JIRA_BASE_URL","JIRA_EMAIL","FIGMA_TOKEN"]
 [pool]
 max_sessions = 5
 session_ttl_hours = 24
+prompt_hard_timeout_secs = 14400
 
 [reactions]
 enabled = true
@@ -315,7 +331,17 @@ usercron_path = "cronjob.toml"
 EOF
 ```
 
-> Summer 沒有 `prompt_hard_timeout_secs`（維持預設 1800s）——這跟 k3s 現況一致，不是漏寫；要不要跟 Rick/Morty 一樣拉到 4hr 是這次可以順手決定的事，不影響搬家本身。
+> ⏳ **`prompt_hard_timeout_secs = 14400` 是 2026-09-17 補上的，機器上還沒套用。** 目標 Mac 的 `~/oab-summer/config.toml` 目前仍是預設 1800s，要套用跑這兩行（改 config 只要 restart，不用重建容器）：
+>
+> ```bash
+> # 在目標 Mac 上
+> grep -q prompt_hard_timeout_secs ~/oab-summer/config.toml || \
+>   perl -i -pe 's/^session_ttl_hours = 24$/session_ttl_hours = 24\nprompt_hard_timeout_secs = 14400/' ~/oab-summer/config.toml
+> grep -A3 '^\[pool\]' ~/oab-summer/config.toml     # 確認三行都在
+> docker -c orbstack restart openab-summer
+> ```
+>
+> **為什麼要補**：當初照抄 k3s 現況不是漏寫——那時 Summer 只做 code review，30 分鐘綽綽有餘。但 2026-09-15 獨狼化後 Summer 也會跑 `solo-feature-pipeline`（一路 openspec → 實作 → 自審 → 開 PR 不中途停），Rick/Morty 正是為此才拉到 `14400`（4hr）。Summer 一旦真的被指派一輪完整開發，預期會撞 `Agent exceeded hard timeout (1800s)`。
 
 ### B4. 啟動容器（sleep 隔離，先不連 Discord）
 
@@ -392,6 +418,8 @@ docker -c orbstack exec -i -u node openab-summer sh -c '
 ### B8. 裝 skill plugin（純 CLI，不用手動 symlink；`marketplace add` 一律用完整 URL）
 
 > **2026-09-15 獨狼化 redesign 後**：三隻都要裝 `solo-bot-skills`（`solo-feature-pipeline` 現在是三隻共用的獨立開發流程，不再是 Rick 專屬例外）。`solo-bot-skills` 新增了 `.codex-plugin` manifest，Summer 也裝得到。
+>
+> ⚠️ **本節是搬家當天的初始安裝集合，不是現行完整清單**：後來還加了 `team-bot@cac-plugins`（product-context）與 `mattpocock-skills@claude-plugins-official`（grilling，2026-09-17 從「只給 Rick」改成三隻都裝）。**要一次裝齊或更新，跑 [`mac/update-skills.sh`](mac/update-skills.sh)**——那支才是現行清單的單一事實來源。
 
 **Rick**：
 
@@ -505,6 +533,17 @@ helm upgrade openab-claude ../../charts/openab -n cac -f values-openab-claude.ya
 kubectl get pods -n cac   # 應只剩 openab-claude-genie，rick/morty 的 pod 消失
 ```
 
+> ⚠️ **這步實際踩了兩個坑（2026-09-15），下次移除 agent 一定會再遇到：**
+>
+> **坑 1 — `helm upgrade` 直接失敗（PVC spec immutable）。** PVC 的 `spec` 除 `resources.requests` 外建立後不可變，但 Helm 想把不再需要的 PVC 欄位（如 `storageClassName`）patch 成 null 去對齊新狀態，違反 K8s 限制。**修法**：手動把資源先清掉，讓 helm 沒有東西可 patch——
+> ```bash
+> kubectl delete deployment openab-claude-rick openab-claude-morty -n cac
+> kubectl delete pvc        openab-claude-rick openab-claude-morty -n cac   # ⚠️ 不可逆
+> ```
+> 這代表原本規劃「穩定幾天後才刪 PVC」的保險緩衝**被迫提前到 cutover 當下**（不可逆動作，動手前先跟人類確認）。
+>
+> **坑 2 — 刪乾淨後重跑，NOTES 卻還是印 `Agents deployed: genie, morty, rick`**（morty/rick 的 command 欄顯示空白 `()`）。根因是 **`values-secret-claude.yaml`（gitignored、存 Discord token）自己也有 `agents.rick`/`agents.morty` 區塊**（各存自己的 `discord.botToken`）。**Helm 多個 `-f` 是深度合併、不是後蓋前**——只要任何一個 `-f` 檔還定義著該 key，它就會在合併結果裡復活，內容缺東缺西（正好解釋空白的 command）。**修法**：秘密檔裡對應的 agent 區塊也要刪。**之後任何「從 values 移除 agent」的操作，都要同步檢查每一個 `-f` 檔案。**
+
 **C2. 整個退役 `openab-codex`**（只有 Summer，可以直接 uninstall）：
 
 ```bash
@@ -554,15 +593,15 @@ docker -c orbstack logs openab-summer | grep -i discord
 
 ## Phase D — 端對端驗證
 
-沿用 `bot-skills/ROLLOUT-CHECKLIST.md`：
+沿用 `bot-skills/ROLLOUT-CHECKLIST.md`。**以下是 2026-09-15 當天的實際結果**：
 
-1. 三隻 healthy，Discord 上三隻上線、帳號名稱正確。
-2. **角色觸發**（Part M，沿用現行 CAC-Analyst/CAC-Builder/CAC-Reviewer 三個角色 ID，不用重建角色）：`@CAC-Analyst`→Morty、`@CAC-Builder`→Rick、`@CAC-Reviewer`→Morty+Summer 同 thread。
-3. **完整 pipeline 一輪**：對 Morty 提個需求 → 產 spec → 人工閘門 → @Rick → Rick 開 PR → @Morty + @Summer → review clean → 人類 merge。全程只在 handoff 行出現 mention，無 bot 互 @ 迴圈。
-4. **Rick 的 jira-grill 能力**（若目前有掛 grill-me 票要驗）：手動 @Rick 觸發一次，確認能讀到 JIRA_TOKEN/FIGMA_TOKEN（`docker -c orbstack exec -u node openab-rick env | grep -E 'JIRA|FIGMA'` 應有值）。
-5. **usercron 冒煙測**：對一隻寫 `~/.openab/cronjob.toml` 每分鐘 ping，確認 1 分鐘內收到，然後移除。
+1. ✅ 三隻 healthy，Discord 上三隻上線、帳號名稱正確。
+2. ✅ **角色觸發**（Part M，沿用現行 CAC-Analyst/CAC-Builder/CAC-Reviewer 三個角色 ID，不用重建角色）：`@CAC-Analyst`→Morty、`@CAC-Builder`→Rick、`@CAC-Reviewer`→Morty+Summer 同 thread。
+3. ⏭️ **完整 pipeline 一輪** —— **刻意跳過**。這項驗的是「Morty→Rick→Summer」接力流程的具體行為，而那正是當天稍晚要被**獨狼化 redesign 取代掉**的東西，測一個快要丟棄的行為沒有意義。**這項至今仍未補驗**——獨狼化後的新流程（單隻跑完 `solo-feature-pipeline`）端對端還沒跑過，見 [`BOT_SETUP.md`](BOT_SETUP.md) K5。
+4. ✅ **Rick 的 jira-grill 能力**：確認能讀到 JIRA_TOKEN/FIGMA_TOKEN（`docker -c orbstack exec -u node openab-rick env | grep -E 'JIRA|FIGMA'` 有值）。
+5. ✅ **usercron 冒煙測**：對一隻寫 `~/.openab/cronjob.toml` 每分鐘 ping，確認 1 分鐘內收到，然後移除。
 
-全部過 → 遷移完成 ✅
+> **遷移本身（infra 層面）到此完成 ✅**（2026-09-15 13:37）。1/2/4/5 驗的都是底層基礎設施（Discord 連線／角色路由／gh 雙帳號／JIRA-Figma 注入／cron），跟未來走接力或獨狼無關，已經覆蓋到位；唯一的缺口是第 3 項，留給獨狼化流程一併驗。
 
 ---
 
@@ -576,21 +615,30 @@ Phase C 是唯一停機點，出包時：
 
 ---
 
-## 事後待辦（穩定數天後才做）
+## 事後待辦（狀態更新至 2026-09-17）
 
-> 這些是**破壞性/收尾動作**，Phase D 驗證穩定運行數天無誤後才做，不要在 cutover 當天一起做。
+> 原本的規劃是「Phase D 驗證穩定數天後才做這些破壞性/收尾動作」。實際上第 1 項被 Helm 的 PVC immutable 限制逼到 cutover 當天就執行（見 Phase C1 的坑 1）。
 
-1. **刪 k3s 上 rick/morty/summer 的 PVC**（`helm.sh/resource-policy: keep` 不會自動刪）：
-   ```bash
-   kubectl delete pvc openab-claude-rick openab-claude-morty openab-codex-summer -n cac
-   ```
-2. **刪對應的靜態 PV**（先 `kubectl get pv` 依 `claimRef` 對到上面三個 PVC 名稱再刪，PV 名稱未實測確認，不要用猜的名字直接刪）。
-3. **清理 Mac mini 上的舊 `openab-local-home` volume**（7月中殘留，跟這次新建的 `openab-rick-home`/`openab-morty-home`/`openab-summer-home` 不是同一份，確認沒有其他地方在用之後 `docker -c orbstack volume rm openab-local-home`）。
-4. **更新 `BOT_SETUP.md`**：Part K2 的 Morty 段落改成 Mac mini/OrbStack 寫法（不再是 Portainer）、Part I 保留給「真的只有 Portainer 網頁」的情境當通用參考、Part O 補一段「後來從 k3s 搬回來」的記錄。
-5. **`K3S.md` 加一段收尾說明**：rick/morty 已於 2026-09 retired、genie 繼續留在 k3s，文件本身當歷史保留。
-6. **`jira-grill-poller`／`agent-dev-poller` 現況**：兩者都是獨立部署、走 Discord @mention 觸發，不受這次 Rick 換 host 影響；若之後要恢復 `jira-grill-poller`（目前是暫停狀態），跟這次遷移無關，各自處理即可。
-7. **清掉建置暫存**：`rm -rf /tmp/openab-build-ctx`（B1 用的 build context，image 已經建好、不再需要這份原始碼副本）。
-8. **考慮備份自建的 image**：這些 image 只存在目標機器（沒推到任何 registry），該機器若重灌/OrbStack 資料重置就會消失。備份選項：① 重新走一次 B1（最推薦，`git archive upstream/main` 隨時可重建，10 分鐘內完成）；② `docker save openab-claude-local:0.10.0-2.1.272 openab-codex-local:0.10.0-0.154.0 -o ~/openab-images-backup.tar` 存一份 tarball（每個約 500MB～1.8GB，注意磁碟空間）。
+| # | 項目 | 狀態 |
+| --- | --- | --- |
+| 1 | 刪 k3s 上 rick/morty/summer 的 PVC | ✅ **已於 2026-09-15 cutover 當天執行**（被迫提前，不是照原訂的「穩定數天後」） |
+| 2 | 刪對應的靜態 PV | ⏳ **未確認**。PVC 刪掉後，`Retain` policy 的 PV 會變 `Released` 而不會自動回收。先 `kubectl get pv` 依 `claimRef` 對到那三個 PVC 名稱再處理，**不要用猜的名字直接刪**（PV 名稱從未實測確認） |
+| 3 | 清理舊的 `openab-local-home` volume | ℹ️ **對象搞錯了**：這顆 7 月殘留的 volume 在 **`2771-macair.local`**（撰寫期間誤以為是目標機器的那台），不在目標 Mac 上。目標 Mac 上的殘留是 `openab-rick`/`openab-summer` 舊容器與同名 volume，已於 cutover 前清掉 ✅ |
+| 4 | 更新 `BOT_SETUP.md` | ✅ **2026-09-17 完成**（現況快照、架構表、Part I/J/K/L6/N/O、維運與疑難排解都已同步） |
+| 5 | `K3S.md` 加收尾說明 | ✅ **2026-09-17 完成**（開頭現況快照 + Phase A–D/Rollback 標為歷史 + 維運對照改成現行四隻） |
+| 6 | `jira-grill-poller`／`agent-dev-poller` 現況 | ℹ️ 兩者都還部署在 k3s、走 Discord @mention 觸發，**不受 Rick 換 host 影響**（bot 身分綁 token 不綁主機）。`jira-grill-poller` 目前 `suspend: true`（2026-09-14 起），恢復只要拿掉該欄位重新 apply；`agent-dev-poller` 改成只在離峰時段跑（`*/10 21-23,0-6 * * *`）、每輪只認領一張票 |
+| 7 | 清掉建置暫存 `/tmp/openab-build-ctx` | ⏳ 未確認（純磁碟空間，無風險；`rm -rf /tmp/openab-build-ctx`） |
+| 8 | 備份自建 image | ⏳ 未做。這兩個 image **只存在目標機器**，機器重灌/OrbStack 資料重置就會消失。選項：① 重跑一次 [B1](#b1-自建-image原生-arm64三隻都用這個)（最推薦，`git archive upstream/main` 隨時可重建）；② `docker save openab-claude-local:0.10.0-2.1.272 openab-codex-local:0.10.0-0.154.0 -o ~/openab-images-backup.tar`（每個約 500MB～1.8GB） |
+
+**遷移之後才浮現、目前還開著的缺口（2026-09-17）：**
+
+| 項目 | 狀態 | 說明 |
+| --- | --- | --- |
+| **獨狼化端對端未驗** | ⏳ 待做（需人操作） | persona 與 `solo-bot-skills` 已套進三個容器，但「單隻跑完 `solo-feature-pipeline` 一輪」還沒實測過（Phase D 第 3 項至今未補驗） |
+| **三隻的 transcript 正在流失** | 🔧 腳本已備妥、**待在機器上掛起來** | Mac 是全新 bootstrap，`~/.claude/settings.json` 沒設 `cleanupPeriodDays`（＝預設 30 天）。2026-09-17 已寫好 [`mac/openab-archive.sh`](mac/openab-archive.sh)（累積鏡像，不刪任何東西）；**還要在目標 Mac 上做兩件事**：調高保留期限 + 掛每週 crontab，指令見 [`mac/README.md`](mac/README.md) |
+| **Summer 的 `prompt_hard_timeout_secs`** | 🔧 runbook 已改、**待套用到機器** | [B3](#b3-configtoml直接照抄已用本機-chart-對-k3s-現行-values-跑-helm-template-印出來的真實內容) 的 config 已補 `14400`，但目標 Mac 的 `~/oab-summer/config.toml` 仍是預設 1800s。獨狼化後 Summer 也會跑 `solo-feature-pipeline`，預期會撞 hard timeout |
+| **使用統計收不到這三隻** | 🔴 未解（設計層面） | `usage-stats` 的 CronJob 讀 k3s 節點的 `hostPath: /data/william/openab`，Mac 的 docker volume 不在裡面（而且該 CronJob **本身也還沒部署**）。權宜路徑：用 `mac/openab-archive.sh` 的鏡像餵 `collect.py --archive-root`（佈局已對齊），見 [`mac/README.md`](mac/README.md) |
+| **`update-context.sh` / `update-skills.sh`** | ✅ 已於 2026-09-17 修正 | 已按執行環境拆成兩套：[`mac/`](mac/)（Rick/Morty/Summer，`docker -c orbstack exec`）與 [`k3s/`](k3s/)（genie 等，`kubectl exec`）。原本兩支都還列著已刪除的 k3s deployment，`set -euo pipefail` 讓第一隻就中止 |
 
 ---
 
@@ -602,9 +650,15 @@ Phase C 是唯一停機點，出包時：
 | 自建 image 重建時又花了完整 10 分鐘（預期應該幾十秒） | `crates/`/`src/` 內容跟上次不同（例如又重新 `git archive upstream/main` 抽到不同 commit），Docker layer cache 沒命中 | 正常現象，upstream 若在兩次建置之間有新 commit 就會這樣；只要 `crates/`/`src/` 沒變、只是換 `--build-arg CLAUDE_CODE_VERSION=...`，就會命中快取 |
 | `claude`/`codex plugin marketplace add owner/repo` 失敗，log 顯示 `ssh: not found` | 簡寫被解析成 SSH URL，映像沒裝 ssh client | 一律用完整 `https://github.com/owner/repo`（見「鐵則」） |
 | Summer 所有 shell 指令 ❌（`unshare failed: Operation not permitted`） | 忘了加 `--security-opt seccomp=unconfined` | 補上該旗標重建容器；驗證 `docker exec openab-summer unshare --user echo ok` 應回 `ok` |
-| Rick 的 `npm install -g openspec` 失敗 | 不太可能發生在 Mac mini（根碟預設可寫，跟 k3s 的 `readOnlyRootFilesystem` 不同）；若真的失敗，可能是私有映像本身鎖了某層權限 | 先確認 `which openspec` 是不是本來就有；仍失敗才排查映像本身 |
+| Rick 的 `npm install -g openspec` 失敗 | 不太可能發生在 Mac mini（根碟預設可寫，跟 k3s 的 `readOnlyRootFilesystem` 不同）；自建的 `Dockerfile.claude` 本來就沒預裝 openspec，所以一定要跑這步 | 先確認 `which openspec` 是不是本來就有；仍失敗才排查映像本身 |
 | gh 登入「restart 就消失」 | 用 root 登入、或 volume 沒持久化、或 env 有裸 `GH_TOKEN` | 一律 `-u node`；確認 `-v openab-*-home:/home/node`；秘密檔只放 `GH_TOKEN_WM4N`/`GH_TOKEN_CAC`，不要有裸 `GH_TOKEN` |
 | 兩邊都連上同一顆 Discord bot、互踢 | Phase C 順序顛倒，k3s 沒先停就開了 Mac mini | 嚴格照 Phase C1→C2→C3 順序，或反過來但同一時刻只能一邊連 |
+| **`gh auth login` 回 `missing required scope 'read:org'`**（✅ 2026-09-15 實際踩到） | `GH_TOKEN_WM4N` 這把 classic PAT 沒勾 `read:org` | 回 GitHub 網頁把**既有** classic PAT 補勾這個 scope，**不用重新產生 token** |
+| **補完秘密檔後 `GH_TOKEN_CAC` 仍回 `HTTP 401 Bad credentials`**（✅ 2026-09-15 實際踩到，最容易忽略的一個） | **`--env-file` 只在 `docker run` 當下讀一次**，容器不會動態感知檔案變更——容器裡還是建立當下那份舊值 | `docker -c orbstack rm -f <容器>` 後重建（掛同一顆 volume，Claude/Codex 登入憑證不受影響，**不用重做 B5**） |
+| **移除 agent 後 `helm upgrade` 失敗**（`cannot patch ... PersistentVolumeClaim`） | PVC spec 建立後不可變，Helm 想 patch 掉不再需要的欄位 | 先 `kubectl delete deployment` + `kubectl delete pvc` 清乾淨（見 [Phase C1 的坑 1](#phase-c--翻轉唯一停機點)） |
+| **移除 agent 後 NOTES 仍列出該 agent**（command 欄空白 `()`） | Helm 多個 `-f` 是**深度合併不是後蓋前**，`values-secret-*.yaml` 裡自己那份 `agents.<name>` 會讓它復活 | 每一個 `-f` 檔案都要同步移除該 agent 區塊（見 [Phase C1 的坑 2](#phase-c--翻轉唯一停機點)） |
+| 目標機器上已有同名容器/volume，`docker run -v` 直接接到兩個月前的舊資料 | 遷去 k3s 之前的原始 Mac 部署殘留（Exited 但 volume 還在） | 執行 [0-1](#0-1-目標機器現況檢查在目標-mac-上親自跑開始-phase-b-前先做) 的盤點；依「全新 bootstrap」決策全部清掉再開始 |
+| `docker build \| tail` / `\| tee` 回報成功但其實失敗 | 管線讓 exit code 變成最後一個指令的，背景任務通知也跟著顯示成功 | 拿到「completed」不要信，一律直接 `docker images` 查、或實際跑一次 `--version` 驗證（2026-09-15 被騙過兩次） |
 
 ---
 
