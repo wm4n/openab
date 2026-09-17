@@ -472,22 +472,66 @@ docker -c orbstack exec -u node openab-morty  claude plugin list   # 應看到 o
 docker -c orbstack exec -u node openab-summer codex plugin list    # 應看到 openab-bot-skills + skill-registry + solo-bot-skills + superpowers
 ```
 
-### B9. Rick 專屬 — openspec
+### B9. openspec（三隻都要，不是只有 Rick）
 
-自建的 `Dockerfile.claude` 沒有預裝 openspec（原本 104corp 私有 image 才有；這點已從 Dockerfile 內容確認，不用先 `which` 探測）。Mac mini 的容器預設可寫根碟，直接裝全域即可，不用像 k3s 那樣繞 PVC：
+> **2026-09-18 更正（實測）**：本節原本標「Rick 專屬」，而實測發現**三隻全部都沒有 openspec——這一步在 2026-09-15 搬家時根本沒被執行過**（不是只漏了 Morty/Summer）。
+>
+> 兩個原因疊在一起：
+>
+> 1. **需求變大了**：當天稍晚的獨狼化讓三隻都會跑 `solo-feature-pipeline`，而那支 skill 內含 openspec 流程（`openspec new → ff → apply` → 獨立 subagent 自審 → `archive` → 開 PR）。沒有 openspec 的話，一被指派獨立開發就會在第一步失敗。
+> 2. **沒有任何驗證會抓到**：Phase D 唯一會用到 openspec 的是第 3 項（完整 pipeline 跑一輪），而那項**刻意跳過了**；D2 只檢查環境變數有沒有值、D5 只測 cron，都碰不到 openspec。**跳過的那一項，剛好就是唯一能抓到這個缺失的那一項。**
+>
+> 而且這個依賴在文件上是隱形的——三份 persona 都只寫「啟動 `solo-feature-pipeline` skill」、沒提 openspec（只有 `Genie-CLAUDE_v2.md` 把該 skill 的內容展開寫）。
+
+自建的 `Dockerfile.claude`／`Dockerfile.codex` 都沒有預裝 openspec（原本 104corp 私有 image 才有；這點已從 Dockerfile 內容確認，不用先 `which` 探測）。Mac mini 的容器預設可寫根碟，直接裝全域即可，不用像 k3s 那樣繞 PVC：
 
 ```bash
-docker -c orbstack exec -u root openab-rick npm install -g @fission-ai/openspec@latest
-docker -c orbstack exec -u node openab-rick openspec --version
+for c in openab-rick openab-morty openab-summer; do
+  echo "--- $c ---"
+  docker -c orbstack exec -u root $c npm install -g @fission-ai/openspec@latest
+  docker -c orbstack exec -u node  $c openspec --version
+done
 ```
 
-openspec profile（一次性，這個容器沒做過）：
+> ✅ **2026-09-18 實測三隻都成功，版本 `1.13.1`**（含 Summer 那個 Codex image——同為 node:22 base、根碟可寫，`npm install -g` 行為與 Claude image 一致，這條路徑至此已驗證）。
+>
+> ✅ **agent 的實際環境也找得到，已在 Discord 對三隻各問過一次 `openspec --version`、都正確回覆。** 這一步值得單獨驗，因為 **`docker exec` 找得到 ≠ agent 找得到**：openab spawn agent 前會 `env_clear()`，agent 的環境只有 config `[agent].env` 加 `inherit_env` 那些。Rick 的 config.toml 有明確的 `env.PATH`（含 `/usr/local/bin`）不意外；**值得記下來的是 Morty/Summer —— 它們的 config.toml 根本沒有 `env` 區塊，照樣找得到**，代表 agent 底下的 bash 會套用自己的內建預設 PATH（含 `/usr/local/bin`），`npm install -g` 裝到那裡就夠。所以這三隻**不需要**為了 openspec 額外去補 `env.PATH`。
+
+openspec profile（**每個容器各一次**，互動選單要一台一台來）：
 
 ```bash
-docker -c orbstack exec -it -u node openab-rick openspec config profile
-# Workflows only → 勾選 propose, explore, new, continue, apply, ff, archive → 確認
-docker -c orbstack exec -u node openab-rick openspec config list   # 確認同時含 propose 與 new/ff
+docker -c orbstack exec -it -u node openab-rick   openspec config profile
+docker -c orbstack exec -it -u node openab-morty  openspec config profile
+docker -c orbstack exec -it -u node openab-summer openspec config profile
+# Workflows only → 勾選 propose, explore, new, apply, update, ff, sync, archive → 確認
+
+for c in openab-rick openab-morty openab-summer; do
+  echo "--- $c ---"
+  docker -c orbstack exec -u node $c openspec config list
+done
 ```
+
+✅ **2026-09-18 三隻實測結果一致，這是已驗證可用的組合**：
+
+```
+profile: custom (explicit)
+delivery: both (explicit)
+workflows: propose, explore, new, apply, update, ff, sync, archive (explicit)
+```
+
+> ⚠️ **這份清單跟本文件先前寫的不一樣，以上面這份為準。** 舊版寫「勾選 propose, explore, new, **continue**, apply, ff, archive」（7 項，沿用 genie 時代的筆記、沒對照過實際結果），問題是**它會把 core 的 `update` 和 `sync` 弄丟**——而 `update` 正是改完 profile 後要在既有 repo 跑的那個（見上一則提示）。
+>
+> 正確的理解是：**core** ＝ `propose`/`explore`/`apply`/`update`/`sync`/`archive`，**expanded** 額外有 `new`/`ff`/`continue`。custom profile 不繼承 core，所以要把 core 那六個**連同** `new`/`ff` 一起勾＝ 8 項。`continue` 沒勾也沒關係——`solo-feature-pipeline` 的流程是 `new → ff → apply → archive`，用不到它。
+
+> ⚠️ **七個 workflow 全都要勾**：`new`/`ff`/`continue` 屬於 expanded workflow、不在預設的 `core` profile 裡；而 custom profile **不會自動繼承** core 的 `propose`/`apply`/`archive`。只勾 `new`/`ff` 反而會讓 `propose` 消失——genie 當初踩過這個坑。
+>
+> ⚠️ **這個全域設定不會自動套用到「已經初始化過的」repo**。設定完成時 openspec 自己會提示：
+>
+> ```
+> Config updated. Run `openspec update` in your projects to apply.
+> ```
+>
+> 意思是：**新** repo 之後跑 `openspec init` 會自動帶到這份 profile，但**已經有 `openspec/` 目錄的既有 repo 得在該 repo 內另外跑一次 `openspec update`**。bot 去接手一個先前初始化過的專案時要注意這點，否則 `/opsx:new` 之類的指令仍然會找不到——症狀跟「profile 沒設」一模一樣，很容易誤判。
 
 ### B10. Summer 專屬 — `~/.codex/config.toml`（issue #1047，用 `BOT_SETUP.md` 現行最完整版）
 
@@ -641,7 +685,8 @@ Phase C 是唯一停機點，出包時：
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| **獨狼化端對端未驗** | ⏳ 待做（需人操作） | persona 與 `solo-bot-skills` 已套進三個容器，但「單隻跑完 `solo-feature-pipeline` 一輪」還沒實測過（Phase D 第 3 項至今未補驗） |
+| **三隻的 openspec** | ✅ 2026-09-18 已補裝並驗證（`1.13.1`） | 當天實測發現三個容器全部沒有——B9 在搬家時根本沒被執行過，而唯一會抓到它的 Phase D 第 3 項又剛好被跳過。已照 [B9](#b9-openspec三隻都要不是只有-rick) 補裝，並在 Discord 對三隻各問過一次 `openspec --version`、都正確回覆版本（＝agent 的實際環境找得到，不只是 `docker exec` 找得到）。profile 也已確認三隻一致（`custom`，8 個 workflow 含 `propose` 與 `new`/`ff`）。**這項已完結。** |
+| **獨狼化端對端未驗** | ⏳ 待做（需人操作） | persona 與 `solo-bot-skills` 已套進三個容器，但「單隻跑完 `solo-feature-pipeline` 一輪」還沒實測過（Phase D 第 3 項至今未補驗）。**要先確認上一列的 openspec**，否則測出來的失敗會是環境問題不是流程問題 |
 | **三隻的 transcript 正在流失** | 🔧 腳本已備妥、**待在機器上掛起來** | Mac 是全新 bootstrap，`~/.claude/settings.json` 沒設 `cleanupPeriodDays`（＝預設 30 天）。2026-09-17 已寫好 [`mac/openab-archive.sh`](mac/openab-archive.sh)（累積鏡像，不刪任何東西）；**還要在目標 Mac 上做兩件事**：調高保留期限 + 掛每週 crontab，指令見 [`mac/README.md`](mac/README.md) |
 | **Summer 的 `prompt_hard_timeout_secs`** | 🔧 runbook 已改、**待套用到機器** | [B3](#b3-configtoml直接照抄已用本機-chart-對-k3s-現行-values-跑-helm-template-印出來的真實內容) 的 config 已補 `14400`，但目標 Mac 的 `~/oab-summer/config.toml` 仍是預設 1800s。獨狼化後 Summer 也會跑 `solo-feature-pipeline`，預期會撞 hard timeout |
 | **使用統計收不到這三隻** | 🔴 未解（設計層面） | `usage-stats` 的 CronJob 讀 k3s 節點的 `hostPath: /data/william/openab`，Mac 的 docker volume 不在裡面（而且該 CronJob **本身也還沒部署**）。權宜路徑：用 `mac/openab-archive.sh` 的鏡像餵 `collect.py --archive-root`（佈局已對齊），見 [`mac/README.md`](mac/README.md) |

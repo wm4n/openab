@@ -902,6 +902,10 @@ docker -c orbstack exec -u root openab-rick npm install -g @fission-ai/openspec@
 docker -c orbstack exec -u node openab-rick openspec --version  # 確認印出版本
 ```
 
+> ⚠️ **2026-09-18 更正：三隻都需要 openspec，不是只有 Rick。** 獨狼化之後 Morty/Summer 也會跑 `solo-feature-pipeline`，而那支 skill 內含 openspec 流程；自建映像沒有預裝。當天實測發現三隻**全部**都沒裝（這一步在搬家時根本沒被執行過），已補裝至 `1.13.1`。
+>
+> 另外每個容器都要各做一次 `openspec config profile`（七個 workflow 全勾，custom profile 不繼承 core 的 `propose`/`apply`/`archive`），而且那只對**新** repo 生效——既有的 `openspec/` 專案要另外跑 `openspec update`。完整步驟與驗證見 [`ORBSTACK-ROLLBACK.md`](ORBSTACK-ROLLBACK.md) B9。
+
 **gh 雙帳號登入**（`GH_TOKEN_WM4N/CAC` 由 `--env-file` 注入）：
 
 ```bash

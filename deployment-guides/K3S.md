@@ -244,9 +244,20 @@ EOF
 > **openspec profile 切換（一次性，Rick 專屬）**：`feature-development` skill 依規格明確程度分別會用到 `new`/`ff`（expanded workflow，不在預設 `core` profile 裡）與 `propose`（在 `core` 裡）。custom profile **不會自動繼承** core 的 `propose`/`apply`/`archive`，兩組要一起勾，否則切了 custom 反而失去 `propose`：
 > ```bash
 > kubectl exec -it <rick-pod> -n cac -- openspec config profile
-> # Workflows only → 勾選 propose, explore, new, continue, apply, ff, archive → 確認
+> # Workflows only → 勾選 propose, explore, new, apply, update, ff, sync, archive → 確認
 > ```
-> 這是每個容器一次性的全域設定（`~/.config/openspec`），設完後日後對任何新 repo 跑 `openspec init` 都會自動套用該 profile，不用每個 repo 重做。`kubectl exec <rick-pod> -n cac -- openspec config list` 可確認 workflows 同時含 `propose` 與 `new`/`ff`。
+> 這是每個容器一次性的全域設定（`~/.config/openspec`），設完後日後對任何**新** repo 跑 `openspec init` 都會自動套用該 profile。`kubectl exec <pod> -n cac -- openspec config list` 確認，2026-09-18 在 Mac 三隻實測通過的組合是
+> `workflows: propose, explore, new, apply, update, ff, sync, archive`（`profile: custom`）。
+>
+> ⚠️ **這份清單是 2026-09-18 更正過的。** 本文件先前寫「勾選 propose, explore, new, **continue**, apply, ff, archive」（7 項），那會把 core 的 `update` 和 `sync` 弄丟——而 `update` 正是下面那則提示要你在既有 repo 跑的指令。正確理解：core ＝ `propose`/`explore`/`apply`/`update`/`sync`/`archive`，expanded 另有 `new`/`ff`/`continue`；custom profile 不繼承 core，所以 core 六個要**連同** `new`/`ff` 一起勾＝ 8 項。`continue` 沒勾不影響（`new → ff → apply → archive` 的流程用不到）。
+>
+> ⚠️ **但「已經初始化過的」repo 不會自動跟上**——設定完成時 openspec 自己會提示：
+>
+> ```
+> Config updated. Run `openspec update` in your projects to apply.
+> ```
+>
+> 意思是既有的 `openspec/` 專案要在該 repo 內另外跑一次 `openspec update`。漏掉的症狀跟「profile 根本沒設」一模一樣（`/opsx:new` 找不到指令），很容易誤判。
 
 **B4. 本機驗證（不碰 Discord）**——逐 pod：
 ```bash
