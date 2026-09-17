@@ -129,8 +129,15 @@ kubectl get secret figma-token -n cac -o jsonpath='{.data.FIGMA_TOKEN}' | base64
 **B1-1. 準備乾淨的原始碼 build context**（直接從 upstream/main 抽，不動你目前的 branch/working tree）：
 
 ```bash
+# openab clone 的位置（目標 Mac 上是 ~/openab/github/openab；開發機上是
+# ~/workspace/ai/openab。host 端只需要「一份」clone——它單純是拿來跑
+# git archive 當 build context，跟哪隻 bot 無關，不用每隻各一份）
+OPENAB_SRC=~/openab/github/openab
+
 rm -rf /tmp/openab-build-ctx && mkdir -p /tmp/openab-build-ctx
-cd /Users/william.chao/workspace/ai/openab
+cd "$OPENAB_SRC"
+git remote get-url upstream >/dev/null 2>&1 || \
+  git remote add upstream https://github.com/openabdev/openab.git   # 舊 clone 可能只有 origin
 git fetch upstream main
 git archive upstream/main | tar -x -C /tmp/openab-build-ctx
 ```
