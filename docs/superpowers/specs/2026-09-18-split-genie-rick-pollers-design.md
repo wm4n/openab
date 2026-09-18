@@ -100,7 +100,7 @@ GH_TOKEN_WM4N / GH_TOKEN_CAC               依 repo owner 分流，缺哪把只�
 | 找新目標 | JQL `project IN (…) AND labels = "grill-me"` | `GET /repos/{o}/{r}/issues?labels=grill-me&state=open` |
 | 認領 | 單一 `PUT` 同時 remove `grill-me` + add `grill-me-active`（原子） | 兩個請求，見下方 |
 | 找有新回覆的進行中目標 | JQL `labels = "grill-me-active" AND updated >= "-25m"` | 同上但 `labels=grill-me-active&since=<25 分鐘前 ISO8601>` |
-| 判斷要不要再觸發 | 讀最新一則留言，**不含** `— By <Bot> (jira-grill)` 簽名就觸發 | 完全相同，改讀 `GET …/issues/{n}/comments?sort=created&direction=desc&per_page=1` |
+| 判斷要不要再觸發 | 讀最新一則留言，**不含** `— By <Bot> (jira-grill)` 簽名就觸發 | 完全相同，但取「最新一則」的方法不同，見下方 |
 | 觸發 | `POST` Discord 訊息到 `TRIGGER_CHANNEL` | 相同 |
 
 **簽名比對維持一模一樣**，不改成「比對留言作者的 GitHub login」——後者在 GitHub
@@ -122,6 +122,39 @@ label（狀態看得出來、人工可修）；反過來寫的話失敗會變成
 
 **查詢端要容忍殘留狀態**：Query 1 查到的 issue 若已帶 `grill-me-active`，代表上
 一輪認領做到一半失敗，補做 `DELETE` 後直接觸發即可，不要當成全新目標重跑整套。
+
+### GitHub 取「最新一則留言」不能靠 `sort`／`direction`（2026-09-18 實測修正）
+
+初版沿用 Jira 端的直覺寫成
+`GET …/issues/{n}/comments?sort=created&direction=desc&per_page=1`，**是錯的**。
+
+GitHub 的 **issue 層級** comments 端點（`/issues/{n}/comments`）不支援 `sort` 與
+`direction`——那兩個參數只有 **repo 層級** 的 `/issues/comments` 才吃。實測對
+`wm4n/chainbreak#18` 帶參數與完全不帶參數，回傳的是同一則：**最舊**那一則。
+
+寫錯的後果互斥地各壞一半流程，而且第二種正是新 issue 的預設路徑：
+
+| 該 issue 第一則留言是誰的 | 判斷結果 | 後果 |
+| --- | --- | --- |
+| 人類 | 無簽名 → `trigger` | **無限重複觸發**：觸發後 bot 留言刷新 `updated_at`，下一輪仍落在 25 分鐘窗口內，再觸發，永不停止 |
+| bot 的 grill 提問（poller 認領全新 issue 後的正常路徑） | 有簽名 → `skip` | **永遠不進下一輪**，人類怎麼回都沒用 |
+
+正確做法是用 Link header 的 `rel="last"` 跳到最後一頁（`per_page=1` ⇒ 最後一頁
+剛好只有最新那則），固定兩個請求、與留言數無關：
+
+```bash
+HEADERS=$(curl -s -D - -o /dev/null … "…/comments?per_page=1")
+LAST_PAGE=$(printf '%s' "$HEADERS" | sed -n 's/.*[?&]page=\([0-9]*\)>; rel="last".*/\1/p')
+[ -z "$LAST_PAGE" ] && LAST_PAGE=1   # 0 或 1 則留言時 GitHub 不給 Link header
+curl -s … "…/comments?per_page=1&page=${LAST_PAGE}"
+```
+
+已對 `wm4n/chainbreak` 六張 issue（0/1/2/3/4/5 則留言）驗證，取到的都與「抓全部
+留言取最後一筆」一致。**Jira 端不受影響**：`orderBy=-created` 是 Jira 正式支援的
+參數；`agent-dev-poller` 完全不讀留言，也不受影響。
+
+教訓：同一個 API 家族的不同層級端點，支援的查詢參數可能不同；用參數改變回傳
+順序前要實測確認，因為不支援時是**靜默忽略**，不會報錯。
 
 ### label 必須預先建立
 
@@ -286,7 +319,9 @@ poller 是 shell + curl，沒有既有的自動化測試，沿用現行的人工
 3. **skill 端對端**：人工 @bot 帶 `github-issue` 參數，確認它讀得到 issue、貼得出
    留言、簽名格式正確（poller 的再觸發判斷完全依賴這個簽名）。
 4. **再觸發迴圈**：在測試 issue 上以人類身分回一則留言，等下一輪確認 poller 有
-   再次觸發；bot 回完後確認**不會**重複觸發。
+   再次觸發；bot 回完後確認**不會**重複觸發。**兩種 issue 都要測**：第一則留言
+   是人類的、以及第一則留言是 bot 的——上面那個排序陷阱在這兩種形狀上的錯法相反，
+   只測其中一種會漏掉另一半。
 5. **隔離驗證**：確認 rick 那組不會碰到 genie 的白名單目標，反之亦然。
 
 ## 已知限制（沿用現行設計的取捨）

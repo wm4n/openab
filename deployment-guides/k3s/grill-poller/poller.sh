@@ -250,11 +250,33 @@ if [ -n "$GITHUB_REPOS" ]; then
           echo "(${REPO_FULL}#${ISSUE_NUMBER} 本輪剛認領過，跳過)"
           continue
         fi
+        # ⚠️ GitHub 的 **issue 層級** comments 端點（/issues/{n}/comments）不支援
+        #    sort / direction——那兩個參數只有 **repo 層級** 的 /issues/comments
+        #    才吃。2026-09-18 實測：帶 `sort=created&direction=desc&per_page=1`
+        #    與完全不帶參數，回傳的是同一則——都是**最舊**的那則留言。
+        #
+        #    所以這裡不能靠參數倒序，只能用 Link header 的 rel="last" 跳到最後
+        #    一頁取最新一則（per_page=1 ⇒ 最後一頁剛好只有最新那則）。固定兩個
+        #    請求，與留言數無關。
+        #
+        #    寫錯的兩種後果都是災難，而且互斥地各壞一半流程：
+        #      - 首則是人類留言 → 永遠判 trigger → 觸發後 Rick 留言又刷新
+        #        updated_at → 下一輪仍落在 25 分鐘窗口內 → **無限重複觸發**。
+        #      - 首則是 bot 的 grill 提問（poller 認領全新 issue 後的正常路徑）
+        #        → 永遠判 skip → **人類怎麼回都不會進下一輪**。
+        HEADERS=$(curl -s -D - -o /dev/null \
+          -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/comments?per_page=1")
+        # 留言數 0 或 1 時 GitHub 不給 Link header，維持 page=1 即正確。
+        LAST_PAGE=$(printf '%s' "$HEADERS" | sed -n 's/.*[?&]page=\([0-9]*\)>; rel="last".*/\1/p')
+        [ -z "$LAST_PAGE" ] && LAST_PAGE=1
         RESPONSE=$(curl -s -w '\n%{http_code}' \
           -H "Authorization: Bearer ${GH_TOKEN_FOR_REPO}" \
           -H "Accept: application/vnd.github+json" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/comments?sort=created&direction=desc&per_page=1")
+          "https://api.github.com/repos/${REPO_FULL}/issues/${ISSUE_NUMBER}/comments?per_page=1&page=${LAST_PAGE}")
         NEEDS_TRIGGER=$(printf '%s' "$RESPONSE" | node -e '
           const raw = require("fs").readFileSync(0, "utf8");
           const nl = raw.lastIndexOf("\n");
