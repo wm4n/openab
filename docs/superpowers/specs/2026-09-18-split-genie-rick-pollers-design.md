@@ -250,6 +250,19 @@ PAT 的建議值，而實際在用的是 **classic PAT**（`repo` scope 本來�
 
 `concurrencyPolicy: Forbid`、`backoffLimit: 0` 四支沿用現行設定。
 
+> ⚠️ **四支都必須設 `timeZone: "Asia/Taipei"`。** 上表的時段全是台北時間，但
+> K8s CronJob 沒設這個欄位時，schedule 會用 kube-controller-manager 的時區
+> 解讀，而**這座 cluster 的主機是 UTC**。
+>
+> 2026-09-18 實際踩過：現行 `agent-dev-poller` 沒設這個欄位，`21-23,0-6` 被當
+> UTC，真正執行的窗口是**台北 05:00–14:59**——整個白天都在觸發 genie，而意圖中
+> 的台北 21:00–04:59 一次都沒跑到。這個 bug 是 2026-09-14 改成離峰時段那次引入
+> 的；在那之前 schedule 是 `*/10 * * * *`（全天），時區錯了也看不出來。
+>
+> `grill-poller` 的 `*/10 * * * *` 雖然全天跑、設不設沒有行為差異，仍然一併加上
+> ——下一個人要限制時段時就不會再踩一次。k8s v1.27 起此欄位 GA（本 cluster 是
+> v1.36，沒有版本問題）。
+
 ## 錯誤處理
 
 沿用兩支現行腳本已驗證的原則，不新增機制：

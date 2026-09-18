@@ -23,6 +23,11 @@ spec:
   # 全天每 10 分鐘。逼問是對話性質，PM 回覆後要儘快接上；壓到離峰會讓一輪
   # 問答拖到隔天。（agent-dev 才需要離峰，那個會真的開始寫 code。）
   schedule: "*/10 * * * *"
+  # ⚠️ 沒有這一行的話 schedule 會用 kube-controller-manager 的時區解讀，
+  # 而這座 cluster 的主機是 UTC——2026-09-18 實際踩過：agent-dev-poller 的
+  # "21-23,0-6" 被當 UTC，真正執行的窗口變成台北 05:00-14:59（整個白天都在
+  # 跑，而意圖中的台北 21:00-04:59 一次都沒跑到）。k8s v1.27 起此欄位 GA。
+  timeZone: "Asia/Taipei"
   # 初次部署用 true，手動 Job 驗證通過後 `kubectl patch` 取消，並把這裡改成
   # false 一併 commit——否則之後任何人重新 apply 都會靜默把它停掉。
   suspend: true

@@ -19,6 +19,11 @@ metadata:
   namespace: cac
 spec:
   schedule: "*/10 21-23,0-6 * * *" # 離峰；理由同 cronjob-rick.yaml
+  # ⚠️ 沒有這一行的話 schedule 會用 kube-controller-manager 的時區解讀，
+  # 而這座 cluster 的主機是 UTC——2026-09-18 實際踩過：agent-dev-poller 的
+  # "21-23,0-6" 被當 UTC，真正執行的窗口變成台北 05:00-14:59（整個白天都在
+  # 跑，而意圖中的台北 21:00-04:59 一次都沒跑到）。k8s v1.27 起此欄位 GA。
+  timeZone: "Asia/Taipei"
   # 部署當下就要能跑（Phase 3 第 3 步驗證），但仍先 suspend、驗證過再放行。
   suspend: true
   concurrencyPolicy: Forbid
