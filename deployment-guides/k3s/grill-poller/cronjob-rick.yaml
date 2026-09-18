@@ -28,9 +28,12 @@ spec:
   # "21-23,0-6" 被當 UTC，真正執行的窗口變成台北 05:00-14:59（整個白天都在
   # 跑，而意圖中的台北 21:00-04:59 一次都沒跑到）。k8s v1.27 起此欄位 GA。
   timeZone: "Asia/Taipei"
-  # 初次部署用 true，手動 Job 驗證通過後 `kubectl patch` 取消，並把這裡改成
-  # false 一併 commit——否則之後任何人重新 apply 都會靜默把它停掉。
-  suspend: true
+  # 2026-09-18 手動 Job 驗證通過後放行：
+  #   test-1（#18 有人類新回覆）→ 正確印出「已觸發」，且完全跳過 Jira 區段
+  #   test-2（Rick 回完之後）  → 有撈到 #18 但正確 skip，證明取到的是最新一則
+  #                              留言而非最舊那則（見 poller.sh 的 Link header 註解）
+  # ⚠️ 不要改回 true——重新 apply 會靜默把運行中的實例停掉。
+  suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
