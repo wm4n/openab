@@ -165,17 +165,53 @@ const JWKS_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(3600)
 /// Verify the JWT's `email` claim belongs to Google Chat.
 /// HTTP endpoint URL webhooks are signed by `chat@system.gserviceaccount.com`.
 /// Without this check, any Google-issued ID token would be accepted.
-fn verify_email_claim(claims: &serde_json::Value) -> Result<(), String> {
+///
+/// Chat apps built as Workspace add-ons are signed by a per-project service
+/// agent (`service-<project-number>@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`)
+/// instead. `extra_signers` are exact, operator-pinned identities accepted in
+/// addition; they are never matched by prefix or suffix, because every GCP
+/// project has an account of that shape and could aim its tokens at our URL.
+fn verify_email_claim(claims: &serde_json::Value, extra_signers: &[String]) -> Result<(), String> {
     let email = claims
         .get("email")
         .and_then(|v| v.as_str())
         .ok_or("missing email claim")?;
-    if email != GOOGLE_CHAT_SIGNER_EMAIL {
+    if email != GOOGLE_CHAT_SIGNER_EMAIL && !extra_signers.iter().any(|s| s == email) {
         return Err(format!(
             "email claim mismatch: expected {GOOGLE_CHAT_SIGNER_EMAIL}, got {email}"
         ));
     }
     Ok(())
+}
+
+/// Parse `GOOGLE_CHAT_SIGNER_EMAILS` (comma-separated) into normalized extra
+/// signer identities. Entries without `@` or containing `*` are dropped with a
+/// warning, so a typo cannot silently widen (or fail to widen) the allow-list.
+fn parse_signer_emails(raw: Option<&str>) -> Vec<String> {
+    normalize_signer_emails(raw.unwrap_or("").split(',').map(str::to_string))
+}
+
+/// Normalize an operator-supplied signer list (from `[googlechat].signer_emails`
+/// or the env var): trim, lowercase, drop empties, and drop (with a warning)
+/// entries that are not a plain identity.
+fn normalize_signer_emails(entries: impl IntoIterator<Item = String>) -> Vec<String> {
+    entries
+        .into_iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .filter(|s| {
+            let valid = s.contains('@') && !s.contains('*');
+            if !valid {
+                tracing::warn!("ignoring invalid googlechat signer email '{s}'");
+            }
+            valid
+        })
+        .collect()
+}
+
+/// Env fallback for the extra JWT signer allow-list (`GOOGLE_CHAT_SIGNER_EMAILS`).
+pub(crate) fn signer_emails_from_env() -> Vec<String> {
+    parse_signer_emails(std::env::var("GOOGLE_CHAT_SIGNER_EMAILS").ok().as_deref())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -193,17 +229,29 @@ struct JwksResponse {
 
 pub struct GoogleChatJwtVerifier {
     audience: String,
+    extra_signers: Vec<String>,
     client: reqwest::Client,
     jwks_cache: RwLock<Option<(Vec<JwkKey>, Instant)>>,
 }
 
 impl GoogleChatJwtVerifier {
     pub fn new(audience: String) -> Self {
+        Self::with_extra_signers(audience, Vec::new())
+    }
+
+    /// Like [`Self::new`], additionally accepting `extra_signers` as the JWT
+    /// `email` claim (see [`verify_email_claim`]).
+    pub fn with_extra_signers(audience: String, extra_signers: Vec<String>) -> Self {
         Self {
             audience,
+            extra_signers,
             client: reqwest::Client::new(),
             jwks_cache: RwLock::new(None),
         }
+    }
+
+    fn check_signer(&self, claims: &serde_json::Value) -> Result<(), String> {
+        verify_email_claim(claims, &self.extra_signers)
     }
 
     async fn get_jwks(&self) -> Result<Vec<JwkKey>, String> {
@@ -268,7 +316,7 @@ impl GoogleChatJwtVerifier {
         let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation)
             .map_err(|e| format!("JWT validation failed: {e}"))?;
 
-        verify_email_claim(&token_data.claims)?;
+        self.check_signer(&token_data.claims)?;
 
         Ok(())
     }
@@ -379,6 +427,10 @@ pub(crate) struct GoogleChatParts {
     /// workload identity. It MUST differ from the metadata server's default SA;
     /// Google prohibits access-token self-impersonation.
     pub adc_target_service_account: Option<String>,
+    /// Extra JWT signer identities accepted besides `chat@system...`
+    /// (`GOOGLE_CHAT_SIGNER_EMAILS`), e.g. a Workspace add-on app's
+    /// per-project service agent.
+    pub signer_emails: Vec<String>,
 }
 
 impl GoogleChatParts {
@@ -398,6 +450,7 @@ impl GoogleChatParts {
             )
             .ok()
             .filter(|s| !s.trim().is_empty()),
+            signer_emails: signer_emails_from_env(),
         }
     }
 }
@@ -446,6 +499,7 @@ impl GoogleChatAdapter {
             audience,
             use_adc,
             adc_target_service_account,
+            signer_emails,
         } = parts;
         let key_configured = sa_key_json.is_some() || sa_key_file.is_some();
         let token_cache = sa_key_json
@@ -463,9 +517,16 @@ impl GoogleChatAdapter {
                     .map_err(|e| warn!("googlechat SA key error: {e}"))
                     .ok()
             });
+        let signer_emails = normalize_signer_emails(signer_emails);
         let jwt_verifier = audience.map(|aud| {
             info!("googlechat webhook JWT verification enabled (audience={aud})");
-            GoogleChatJwtVerifier::new(aud)
+            if !signer_emails.is_empty() {
+                info!(
+                    "googlechat webhook JWT also accepts signer(s): {}",
+                    signer_emails.join(", ")
+                );
+            }
+            GoogleChatJwtVerifier::with_extra_signers(aud, signer_emails)
         });
         // Precedence at send time (see `get_token`): SA key > ADC > static token.
         // Validate at the adapter boundary so env-only/config-first construction
@@ -3218,33 +3279,156 @@ mod tests {
     #[test]
     fn email_claim_accepts_chat_system_account() {
         let claims = serde_json::json!({"email": "chat@system.gserviceaccount.com"});
-        assert!(verify_email_claim(&claims).is_ok());
+        assert!(verify_email_claim(&claims, &[]).is_ok());
     }
 
     #[test]
     fn email_claim_rejects_other_google_email() {
         let claims = serde_json::json!({"email": "attacker@example.iam.gserviceaccount.com"});
-        let err = verify_email_claim(&claims).unwrap_err();
+        let err = verify_email_claim(&claims, &[]).unwrap_err();
         assert!(err.contains("email claim mismatch"));
     }
 
     #[test]
     fn email_claim_rejects_unrelated_gserviceaccount() {
         let claims = serde_json::json!({"email": "my-sa@my-project.iam.gserviceaccount.com"});
-        assert!(verify_email_claim(&claims).is_err());
+        assert!(verify_email_claim(&claims, &[]).is_err());
     }
 
     #[test]
     fn email_claim_rejects_missing_email() {
         let claims = serde_json::json!({"sub": "123", "iss": "accounts.google.com"});
-        let err = verify_email_claim(&claims).unwrap_err();
+        let err = verify_email_claim(&claims, &[]).unwrap_err();
         assert!(err.contains("missing email"));
     }
 
     #[test]
     fn email_claim_rejects_non_string_email() {
         let claims = serde_json::json!({"email": 12345});
-        assert!(verify_email_claim(&claims).is_err());
+        assert!(verify_email_claim(&claims, &[]).is_err());
+    }
+
+    // --- Workspace add-on signer (GOOGLE_CHAT_SIGNER_EMAILS) ---
+    //
+    // A Chat app built as a Workspace add-on gets its webhooks signed by a
+    // per-project service agent, not `chat@system.gserviceaccount.com`. The
+    // operator pins that one identity; nothing broader is accepted.
+
+    const OUR_ADDON_SIGNER: &str =
+        "service-111111111111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com";
+    const OTHER_ADDON_SIGNER: &str =
+        "service-222222222222@gcp-sa-gsuiteaddons.iam.gserviceaccount.com";
+
+    #[test]
+    fn email_claim_accepts_configured_addon_signer() {
+        let claims = serde_json::json!({"email": OUR_ADDON_SIGNER});
+        assert!(verify_email_claim(&claims, &[OUR_ADDON_SIGNER.to_string()]).is_ok());
+    }
+
+    #[test]
+    fn email_claim_rejects_other_projects_addon_signer() {
+        // Same `gcp-sa-gsuiteaddons` shape, different project: anyone can mint
+        // this with their own GCP project and point it at our URL.
+        let claims = serde_json::json!({"email": OTHER_ADDON_SIGNER});
+        let err = verify_email_claim(&claims, &[OUR_ADDON_SIGNER.to_string()]).unwrap_err();
+        assert!(err.contains("email claim mismatch"));
+    }
+
+    #[test]
+    fn email_claim_extra_signer_is_not_a_prefix_or_suffix_match() {
+        let claims = serde_json::json!({"email": format!("x{OUR_ADDON_SIGNER}")});
+        assert!(verify_email_claim(&claims, &[OUR_ADDON_SIGNER.to_string()]).is_err());
+    }
+
+    #[test]
+    fn email_claim_still_accepts_chat_system_when_extra_signers_set() {
+        let claims = serde_json::json!({"email": "chat@system.gserviceaccount.com"});
+        assert!(verify_email_claim(&claims, &[OUR_ADDON_SIGNER.to_string()]).is_ok());
+    }
+
+    #[test]
+    fn jwt_verifier_uses_its_configured_extra_signers() {
+        let verifier =
+            GoogleChatJwtVerifier::with_extra_signers("aud".into(), vec![OUR_ADDON_SIGNER.into()]);
+        assert!(verifier
+            .check_signer(&serde_json::json!({"email": OUR_ADDON_SIGNER}))
+            .is_ok());
+        assert!(verifier
+            .check_signer(&serde_json::json!({"email": OTHER_ADDON_SIGNER}))
+            .is_err());
+    }
+
+    #[test]
+    fn jwt_verifier_without_extra_signers_rejects_addon_signer() {
+        // Backward compatibility: default behaviour is unchanged.
+        let verifier = GoogleChatJwtVerifier::new("aud".into());
+        assert!(verifier
+            .check_signer(&serde_json::json!({"email": OUR_ADDON_SIGNER}))
+            .is_err());
+    }
+
+    #[test]
+    fn from_parts_wires_signer_emails_into_the_verifier() {
+        let adapter = GoogleChatAdapter::from_parts(GoogleChatParts {
+            audience: Some("aud".into()),
+            signer_emails: vec![OUR_ADDON_SIGNER.into()],
+            ..Default::default()
+        });
+        let verifier = adapter
+            .jwt_verifier
+            .expect("audience set => verifier built");
+        assert!(verifier
+            .check_signer(&serde_json::json!({"email": OUR_ADDON_SIGNER}))
+            .is_ok());
+    }
+
+    #[test]
+    fn from_parts_normalizes_signer_emails_supplied_by_config() {
+        // The `[googlechat]` section hands over a raw list that never went
+        // through `parse_signer_emails`; the adapter must normalize it too.
+        let adapter = GoogleChatAdapter::from_parts(GoogleChatParts {
+            audience: Some("aud".into()),
+            signer_emails: vec![
+                format!("  {}  ", OUR_ADDON_SIGNER.to_uppercase()),
+                "*@x".into(),
+            ],
+            ..Default::default()
+        });
+        let verifier = adapter
+            .jwt_verifier
+            .expect("audience set => verifier built");
+        assert!(verifier
+            .check_signer(&serde_json::json!({"email": OUR_ADDON_SIGNER}))
+            .is_ok());
+    }
+
+    #[test]
+    fn parse_signer_emails_splits_trims_and_lowercases() {
+        let got = parse_signer_emails(Some(
+            " Service-1@gcp-sa-gsuiteaddons.iam.gserviceaccount.com , b@x.iam.gserviceaccount.com ",
+        ));
+        assert_eq!(
+            got,
+            vec![
+                "service-1@gcp-sa-gsuiteaddons.iam.gserviceaccount.com".to_string(),
+                "b@x.iam.gserviceaccount.com".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_signer_emails_drops_empty_and_malformed_entries() {
+        // No '@' (not an identity) and wildcards (would defeat exact pinning).
+        let got = parse_signer_emails(Some(
+            ",,not-an-email,*@x.iam.gserviceaccount.com,ok@x.iam.gserviceaccount.com",
+        ));
+        assert_eq!(got, vec!["ok@x.iam.gserviceaccount.com".to_string()]);
+    }
+
+    #[test]
+    fn parse_signer_emails_none_or_blank_is_empty() {
+        assert!(parse_signer_emails(None).is_empty());
+        assert!(parse_signer_emails(Some("   ")).is_empty());
     }
 
     #[test]

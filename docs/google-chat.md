@@ -271,6 +271,7 @@ Each field falls back to its `GOOGLE_CHAT_ALLOW_ALL_USERS` / `GOOGLE_CHAT_ALLOWE
 | `GOOGLE_CHAT_ACCESS_TOKEN` | No | — | Static OAuth2 access token (fallback, expires in 1 hour) |
 | `GOOGLE_CHAT_USE_ADC` | No | `false` | Set to `true` or `1` to enable keyless ADC: attached runtime SA impersonates a distinct Chat-app target via IAM Credentials — see Option C |
 | `GOOGLE_CHAT_ADC_TARGET_SERVICE_ACCOUNT` | With ADC | — | Email of the dedicated Chat-app SA to impersonate. Required when `USE_ADC=true`; MUST differ from the runtime SA |
+| `GOOGLE_CHAT_SIGNER_EMAILS` | Add-on apps | — | Comma-separated extra JWT signer identities accepted besides `chat@system.gserviceaccount.com`, matched exactly. See [Chat apps built as Workspace add-ons](#chat-apps-built-as-workspace-add-ons) |
 | `GOOGLE_CHAT_WEBHOOK_PATH` | No | `/webhook/googlechat` | Webhook endpoint path |
 
 ## Security: Webhook Verification
@@ -289,9 +290,25 @@ The gateway will:
 - Reject requests without a valid `Authorization: Bearer <jwt>` header
 - Verify the JWT signature against Google's public keys (JWKS, cached for 1 hour)
 - Validate `iss == https://accounts.google.com` and `aud` matches the configured webhook URL
-- Validate `email` ends with `@gcp-sa-gsuiteaddons.iam.gserviceaccount.com` (proves the token came from Google Chat, not another Google service)
+- Validate `email == chat@system.gserviceaccount.com`, or exactly one of the identities listed in `GOOGLE_CHAT_SIGNER_EMAILS` (proves the token came from Google Chat, not another Google service — a Google-signed token with the right audience is not enough, since any GCP project can mint one)
 
 If `GOOGLE_CHAT_AUDIENCE` is not set, the gateway logs a warning and accepts all requests (insecure — for local development only).
+
+### Chat apps built as Workspace add-ons
+
+Google's Cloud console can create the Chat app as a **Workspace add-on**. Its webhooks are signed by a per-project service agent instead of `chat@system.gserviceaccount.com`; the console shows it under **Connection settings → Service account email**:
+
+```
+service-<project-number>@gcp-sa-gsuiteaddons.iam.gserviceaccount.com
+```
+
+Symptom: every webhook is rejected with `email claim mismatch: expected chat@system.gserviceaccount.com, got service-…@gcp-sa-gsuiteaddons…` (signature, issuer and audience already passed). Pin that one identity:
+
+```bash
+export GOOGLE_CHAT_SIGNER_EMAILS="service-123456789012@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
+```
+
+or `signer_emails = ["service-…"]` in the `[googlechat]` section. Matching is exact on purpose: every GCP project has an account of this shape and can point its tokens at your URL, so a `gcp-sa-gsuiteaddons` suffix match would let other projects' apps in. Only your own project's identity belongs here.
 
 > **Note:** Only the "HTTP Endpoint URL" Authentication Audience mode is supported. The "Project Number" mode uses a different JWT flow that this adapter does not implement.
 

@@ -1288,6 +1288,7 @@ async fn main() -> anyhow::Result<()> {
                     adc_target_service_account: r.adc_target_service_account,
                     audience: r.audience,
                     webhook_path: r.webhook_path,
+                    signer_emails: r.signer_emails,
                 });
             }
             // First-class `[teams]` config overrides env-derived values

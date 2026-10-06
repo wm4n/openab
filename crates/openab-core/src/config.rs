@@ -1235,6 +1235,12 @@ pub struct GoogleChatConfig {
     /// the runtime identity because Google prohibits access-token
     /// self-impersonation. Env: `GOOGLE_CHAT_ADC_TARGET_SERVICE_ACCOUNT`.
     pub adc_target_service_account: Option<String>,
+    /// Extra webhook-JWT signer identities accepted besides
+    /// `chat@system.gserviceaccount.com`, matched exactly. Needed by Chat apps
+    /// built as Workspace add-ons, whose webhooks are signed by a per-project
+    /// service agent (`service-<project-number>@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`).
+    /// Env fallback: `GOOGLE_CHAT_SIGNER_EMAILS` (comma-separated).
+    pub signer_emails: Option<Vec<String>>,
 }
 
 /// Fully resolved Google Chat settings (config → env → default applied).
@@ -1250,6 +1256,7 @@ pub struct ResolvedGoogleChat {
     pub webhook_path: String,
     pub allow_all_users: bool,
     pub allowed_users: Vec<String>,
+    pub signer_emails: Vec<String>,
 }
 
 impl GoogleChatConfig {
@@ -1291,6 +1298,15 @@ impl GoogleChatConfig {
             allowed_users: match &self.allowed_users {
                 Some(list) => list.clone(),
                 None => std::env::var("GOOGLE_CHAT_ALLOWED_USERS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+            },
+            signer_emails: match &self.signer_emails {
+                Some(list) => list.clone(),
+                None => std::env::var("GOOGLE_CHAT_SIGNER_EMAILS")
                     .unwrap_or_default()
                     .split(',')
                     .map(|s| s.trim().to_string())
@@ -2989,6 +3005,7 @@ allowed_users = ["U1234567890abcdef0123456789abcdef"]
             "GOOGLE_CHAT_ADC_TARGET_SERVICE_ACCOUNT",
             "GOOGLE_CHAT_AUDIENCE",
             "GOOGLE_CHAT_WEBHOOK_PATH",
+            "GOOGLE_CHAT_SIGNER_EMAILS",
         ] {
             std::env::remove_var(k);
         }
@@ -2998,6 +3015,32 @@ allowed_users = ["U1234567890abcdef0123456789abcdef"]
         assert!(!r.use_adc);
         assert!(r.audience.is_none());
         assert_eq!(r.webhook_path, "/webhook/googlechat");
+        assert!(r.signer_emails.is_empty());
+
+        // --- signer_emails: env fallback is comma-separated and trimmed ---
+        std::env::set_var(
+            "GOOGLE_CHAT_SIGNER_EMAILS",
+            " a@x.iam.gserviceaccount.com , ,b@x.iam.gserviceaccount.com ",
+        );
+        let r = GoogleChatConfig::default().resolve();
+        assert_eq!(
+            r.signer_emails,
+            vec![
+                "a@x.iam.gserviceaccount.com".to_string(),
+                "b@x.iam.gserviceaccount.com".to_string()
+            ]
+        );
+        // --- signer_emails: config wins over env ---
+        let r = GoogleChatConfig {
+            signer_emails: Some(vec!["cfg@x.iam.gserviceaccount.com".into()]),
+            ..Default::default()
+        }
+        .resolve();
+        assert_eq!(
+            r.signer_emails,
+            vec!["cfg@x.iam.gserviceaccount.com".to_string()]
+        );
+        std::env::remove_var("GOOGLE_CHAT_SIGNER_EMAILS");
 
         // --- whitespace-only secrets/targets are absent at the config boundary ---
         std::env::set_var("GOOGLE_CHAT_ACCESS_TOKEN", " \t ");

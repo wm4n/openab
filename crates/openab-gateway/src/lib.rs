@@ -454,6 +454,7 @@ impl AppState {
                     audience: cfg.audience,
                     use_adc: cfg.use_adc,
                     adc_target_service_account: cfg.adc_target_service_account,
+                    signer_emails: cfg.signer_emails,
                 },
             ))
         } else {
@@ -558,6 +559,7 @@ pub struct GatewayGoogleChatConfig {
     pub use_adc: bool,
     pub adc_target_service_account: Option<String>,
     pub webhook_path: String,
+    pub signer_emails: Vec<String>,
 }
 
 /// Parameter object for passing resolved Teams config across the crate
@@ -1319,6 +1321,7 @@ mod l1_audit_tests {
             use_adc: false,
             adc_target_service_account: None,
             webhook_path: "/hook/gc".into(),
+            signer_emails: Vec::new(),
         });
         assert!(s.google_chat.is_some());
         assert_eq!(s.googlechat_webhook_path, "/hook/gc");
@@ -1334,6 +1337,7 @@ mod l1_audit_tests {
             use_adc: false,
             adc_target_service_account: None,
             webhook_path: "/hook/gc".into(),
+            signer_emails: Vec::new(),
         });
         assert!(flagged(&s).is_empty());
 
@@ -1347,6 +1351,7 @@ mod l1_audit_tests {
             use_adc: false,
             adc_target_service_account: None,
             webhook_path: "/hook/gc".into(),
+            signer_emails: Vec::new(),
         });
         assert!(s.google_chat.is_none());
     }
